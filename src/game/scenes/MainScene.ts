@@ -1,13 +1,16 @@
-import { Scene } from 'phaser';
 import { debounce } from 'lodash-es';
+import { Scene } from 'phaser';
 
+import { CAMERA_CONFIG, SAVE_CONFIG, TILE_SIZE } from '@/game/constants';
+import { GridRenderer } from '@/game/renderers/GridRenderer';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
+import { useLevelStore } from '@/store/levelStore';
+import { useSaveStore } from '@/store/saveStore';
+import { useToolbarStore } from '@/store/toolbarStore';
+import { useUIStore } from '@/store/uiStore';
 
 export class MainScene extends Scene {
-  private minZoom = 0.5;
-  private maxZoom = 3;
-  private zoomSpeed = 0.1;
-  private moveSpeed = 5;
+  private gridRenderer!: GridRenderer;
 
   private debouncedSaveZoom = debounce((zoom: number) => {
     useCameraZoomStore.getState().setZoom(zoom);
@@ -24,6 +27,12 @@ export class MainScene extends Scene {
   create() {
     const camera = this.cameras.main;
 
+    // Инициализируем первый уровень если его нет
+    const { levels, currentLevelId, createLevel } = useLevelStore.getState();
+    if (levels.size === 0) {
+      createLevel('Уровень 1');
+    }
+
     // Восстанавливаем сохраненное состояние камеры
     const { zoom } = useCameraZoomStore.getState();
     const { position } = useCameraPositionStore.getState();
@@ -31,12 +40,26 @@ export class MainScene extends Scene {
     camera.setZoom(zoom);
     camera.setScroll(position.x, position.y);
 
+    // Инициализируем GridRenderer
+    this.gridRenderer = new GridRenderer(this);
+
     // Зум с фокусом на курсоре
     this.input.on(
       'wheel',
-      (pointer: Phaser.Input.Pointer, _gameObjects: unknown, _deltaX: number, deltaY: number) => {
+      (
+        pointer: Phaser.Input.Pointer,
+        _gameObjects: unknown,
+        _deltaX: number,
+        deltaY: number
+      ) => {
         const oldZoom = camera.zoom;
-        const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, oldZoom - deltaY * 0.001 * this.zoomSpeed));
+        const newZoom = Math.max(
+          CAMERA_CONFIG.minZoom,
+          Math.min(
+            CAMERA_CONFIG.maxZoom,
+            oldZoom - deltaY * 0.001 * CAMERA_CONFIG.zoomSpeed
+          )
+        );
 
         if (oldZoom !== newZoom) {
           // Запоминаем мировую позицию под курсором ДО зума
@@ -58,6 +81,88 @@ export class MainScene extends Scene {
         }
       }
     );
+
+    // ЛКМ - строить тайл
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button === 0) {
+        // ЛКМ
+        this.placeTile(pointer);
+      } else if (pointer.button === 1) {
+        // Средняя кнопка - пипетка
+        this.eyedropperTool(pointer);
+      }
+    });
+
+    // Клавиши 1/2/3 - выбор тайла
+    this.input.keyboard?.on('keydown-ONE', () => {
+      useToolbarStore.getState().setActiveTile('wall');
+    });
+    this.input.keyboard?.on('keydown-TWO', () => {
+      useToolbarStore.getState().setActiveTile('floor');
+    });
+    this.input.keyboard?.on('keydown-THREE', () => {
+      useToolbarStore.getState().setActiveTile('unlinked-portal');
+    });
+
+    // G - toggle сетки
+    this.input.keyboard?.on('keydown-G', () => {
+      useUIStore.getState().toggleGrid();
+    });
+
+    // Автосохранение каждые 30 секунд
+    this.time.addEvent({
+      delay: SAVE_CONFIG.autoSaveInterval,
+      callback: () => {
+        const { isDirty, clearDirty } = useSaveStore.getState();
+
+        if (isDirty) {
+          console.log('Автосохранение...');
+          clearDirty();
+        }
+      },
+      loop: true,
+    });
+  }
+
+  private placeTile(pointer: Phaser.Input.Pointer) {
+    const { currentLevelId, setTile } = useLevelStore.getState();
+    if (!currentLevelId) return;
+
+    const { activeTile } = useToolbarStore.getState();
+
+    // Конвертируем позицию клика в координаты тайла
+    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tileX = Math.floor(worldPoint.x / TILE_SIZE);
+    const tileY = Math.floor(worldPoint.y / TILE_SIZE);
+
+    // Размещаем тайл
+    if (activeTile === 'unlinked-portal') {
+      setTile(currentLevelId, tileX, tileY, { type: 'unlinked-portal' });
+    } else {
+      setTile(currentLevelId, tileX, tileY, { type: activeTile });
+    }
+
+    // Отмечаем что статический слой нужно перерисовать если это wall
+    if (activeTile === 'wall') {
+      this.gridRenderer.markStaticDirty();
+    }
+  }
+
+  private eyedropperTool(pointer: Phaser.Input.Pointer) {
+    const { currentLevelId, getTile } = useLevelStore.getState();
+    if (!currentLevelId) return;
+
+    // Конвертируем позицию клика в координаты тайла
+    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tileX = Math.floor(worldPoint.x / TILE_SIZE);
+    const tileY = Math.floor(worldPoint.y / TILE_SIZE);
+
+    const tile = getTile(currentLevelId, tileX, tileY);
+
+    // Копируем тип тайла в активный инструмент
+    if (tile.type === 'wall' || tile.type === 'floor' || tile.type === 'unlinked-portal') {
+      useToolbarStore.getState().setActiveTile(tile.type);
+    }
   }
 
   update() {
@@ -71,19 +176,19 @@ export class MainScene extends Scene {
     const keyD = this.input.keyboard?.addKey('D');
 
     if (keyW?.isDown) {
-      camera.scrollY -= this.moveSpeed;
+      camera.scrollY -= CAMERA_CONFIG.moveSpeed;
       moved = true;
     }
     if (keyS?.isDown) {
-      camera.scrollY += this.moveSpeed;
+      camera.scrollY += CAMERA_CONFIG.moveSpeed;
       moved = true;
     }
     if (keyA?.isDown) {
-      camera.scrollX -= this.moveSpeed;
+      camera.scrollX -= CAMERA_CONFIG.moveSpeed;
       moved = true;
     }
     if (keyD?.isDown) {
-      camera.scrollX += this.moveSpeed;
+      camera.scrollX += CAMERA_CONFIG.moveSpeed;
       moved = true;
     }
 
@@ -91,5 +196,9 @@ export class MainScene extends Scene {
     if (moved) {
       this.debouncedSavePosition(camera.scrollX, camera.scrollY);
     }
+
+    // Рендерим сетку
+    const { showGrid } = useUIStore.getState();
+    this.gridRenderer.render(camera, showGrid);
   }
 }

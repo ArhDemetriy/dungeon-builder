@@ -20,6 +20,17 @@ export const useLevelStore = create<{
     to: { levelId: string; position: { x: number; y: number } },
     name: string
   ) => string;
+
+  linkPortals: (
+    point1: { levelId: string; position: { x: number; y: number } },
+    point2: { levelId: string; position: { x: number; y: number } },
+    name: string
+  ) => string;
+
+  getUnlinkedPortals: () => Array<{
+    levelId: string;
+    position: { x: number; y: number };
+  }>;
 }>()(
   devtools(
     persist(
@@ -98,6 +109,70 @@ export const useLevelStore = create<{
           });
           useSaveStore.getState().markDirty();
           return portalId;
+        },
+
+        linkPortals: (point1, point2, name) => {
+          const portalId = nanoid();
+          const portal: Portal = {
+            id: portalId,
+            name,
+            endpoints: {
+              A: { levelId: point1.levelId, position: point1.position },
+              B: { levelId: point2.levelId, position: point2.position },
+            },
+            createdAt: Date.now(),
+          };
+
+          set(state => {
+            const portals = new Map(state.portals).set(portalId, portal);
+            const levels = new Map(state.levels);
+
+            const level1 = levels.get(point1.levelId);
+            const level2 = levels.get(point2.levelId);
+
+            if (level1 && level2) {
+              // Проверяем что оба тайла - несвязанные порталы
+              const tile1 = level1.tiles.get(tileKey(point1.position.x, point1.position.y));
+              const tile2 = level2.tiles.get(tileKey(point2.position.x, point2.position.y));
+
+              if (tile1?.type === 'unlinked-portal' && tile2?.type === 'unlinked-portal') {
+                // Заменяем на связанные порталы
+                level1.tiles.set(tileKey(point1.position.x, point1.position.y), {
+                  type: 'portal',
+                  portalId,
+                });
+                level2.tiles.set(tileKey(point2.position.x, point2.position.y), {
+                  type: 'portal',
+                  portalId,
+                });
+              }
+            }
+
+            return { portals, levels };
+          });
+          useSaveStore.getState().markDirty();
+          return portalId;
+        },
+
+        getUnlinkedPortals: () => {
+          const { levels } = get();
+          const unlinkedPortals: Array<{
+            levelId: string;
+            position: { x: number; y: number };
+          }> = [];
+
+          levels.forEach((level, levelId) =>
+            level.tiles.forEach((tile, key) => {
+              if (tile.type !== 'unlinked-portal') return;
+              const { 0: x, 1: y } = key.split(',').map(Number);
+              unlinkedPortals.push({
+                levelId,
+                position: { x, y },
+              });
+            })
+          );
+
+          return unlinkedPortals;
         },
       }),
       {
