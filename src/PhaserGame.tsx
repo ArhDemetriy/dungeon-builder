@@ -1,10 +1,9 @@
-import { useEffect, useRef } from 'react';
-import { Game } from 'phaser';
-
 import { gameConfig } from '@/game/config';
+import { Game } from 'phaser';
+import { useEffect, useRef } from 'react';
 
 export function PhaserGame() {
-  const gameRef = useRef<Game | null>(null);
+  const gameRef = useRef<Game>(null);
 
   useEffect(() => {
     if (!gameRef.current) {
@@ -19,4 +18,3 @@ export function PhaserGame() {
 
   return <div id="phaser-container" />;
 }
-
