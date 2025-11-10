@@ -97,7 +97,7 @@ src/
 
 ## Документация
 
-- **[TypeScript Style Guide](./TYPESCRIPT_STYLEGUIDE.md)** - правила написания кода для нейроагентов
+- **[Style Guide](./STYLEGUIDE.md)** - правила написания кода для нейроагентов
 
 ## Roadmap
 
@@ -142,5 +142,7 @@ src/
 
 ## License
 
-MIT
+Creative Commons Attribution-NonCommercial 4.0 International Public License
+
+См. [LICENSE](./LICENSE) для полного текста лицензии.
 
