@@ -21,6 +21,7 @@
     "^ui",
     "^svg",
     "^styles",
+    "^[@/]",
     "^[./]"
   ],
   "importOrderSeparation": true,

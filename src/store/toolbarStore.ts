@@ -1,6 +1,7 @@
-import type { PrimitiveTile } from '@/types/level';
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+
+import type { PrimitiveTile } from '@/types/level';
 
 export const useToolbarStore = create<{
   activeTile: PrimitiveTile['type'];

@@ -14,9 +14,9 @@ interface CameraPositionStore {
 export const useCameraZoomStore = create<CameraZoomStore>()(
   devtools(
     persist(
-      (set) => ({
+      set => ({
         zoom: 1,
-        setZoom: (zoom) => set({ zoom }),
+        setZoom: zoom => set({ zoom }),
       }),
       {
         name: 'camera-zoom',
@@ -29,7 +29,7 @@ export const useCameraZoomStore = create<CameraZoomStore>()(
 export const useCameraPositionStore = create<CameraPositionStore>()(
   devtools(
     persist(
-      (set) => ({
+      set => ({
         position: { x: 0, y: 0 },
         setPosition: (x, y) => set({ position: { x, y } }),
       }),
@@ -40,4 +40,3 @@ export const useCameraPositionStore = create<CameraPositionStore>()(
     { name: 'CameraPositionStore' }
   )
 );
-

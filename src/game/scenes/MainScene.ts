@@ -44,43 +44,32 @@ export class MainScene extends Scene {
     this.gridRenderer = new GridRenderer(this);
 
     // Зум с фокусом на курсоре
-    this.input.on(
-      'wheel',
-      (
-        pointer: Phaser.Input.Pointer,
-        _gameObjects: unknown,
-        _deltaX: number,
-        deltaY: number
-      ) => {
-        const oldZoom = camera.zoom;
-        const newZoom = Math.max(
-          CAMERA_CONFIG.minZoom,
-          Math.min(
-            CAMERA_CONFIG.maxZoom,
-            oldZoom - deltaY * 0.001 * CAMERA_CONFIG.zoomSpeed
-          )
-        );
+    this.input.on('wheel', (pointer: Phaser.Input.Pointer, _gameObjects: unknown, _deltaX: number, deltaY: number) => {
+      const oldZoom = camera.zoom;
+      const newZoom = Math.max(
+        CAMERA_CONFIG.minZoom,
+        Math.min(CAMERA_CONFIG.maxZoom, oldZoom - deltaY * 0.001 * CAMERA_CONFIG.zoomSpeed)
+      );
 
-        if (oldZoom !== newZoom) {
-          // Запоминаем мировую позицию под курсором ДО зума
-          const worldPoint = camera.getWorldPoint(pointer.x, pointer.y);
+      if (oldZoom !== newZoom) {
+        // Запоминаем мировую позицию под курсором ДО зума
+        const worldPoint = camera.getWorldPoint(pointer.x, pointer.y);
 
-          // Применяем новый зум
-          camera.setZoom(newZoom);
+        // Применяем новый зум
+        camera.setZoom(newZoom);
 
-          // Вычисляем новую мировую позицию под курсором ПОСЛЕ зума
-          const newWorldPoint = camera.getWorldPoint(pointer.x, pointer.y);
+        // Вычисляем новую мировую позицию под курсором ПОСЛЕ зума
+        const newWorldPoint = camera.getWorldPoint(pointer.x, pointer.y);
 
-          // Корректируем камеру чтобы курсор остался на том же месте
-          camera.scrollX += worldPoint.x - newWorldPoint.x;
-          camera.scrollY += worldPoint.y - newWorldPoint.y;
+        // Корректируем камеру чтобы курсор остался на том же месте
+        camera.scrollX += worldPoint.x - newWorldPoint.x;
+        camera.scrollY += worldPoint.y - newWorldPoint.y;
 
-          // Сохраняем в stores с debounce
-          this.debouncedSaveZoom(newZoom);
-          this.debouncedSavePosition(camera.scrollX, camera.scrollY);
-        }
+        // Сохраняем в stores с debounce
+        this.debouncedSaveZoom(newZoom);
+        this.debouncedSavePosition(camera.scrollX, camera.scrollY);
       }
-    );
+    });
 
     // ЛКМ - строить тайл
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {

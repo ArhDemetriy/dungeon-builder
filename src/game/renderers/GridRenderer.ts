@@ -40,26 +40,12 @@ export class GridRenderer {
 
     // Статический слой (wall) - редко перерисовывается
     if (this.staticDirty) {
-      this.redrawStaticLayer(
-        currentLevelId,
-        startTileX,
-        endTileX,
-        startTileY,
-        endTileY,
-        getTile
-      );
+      this.redrawStaticLayer(currentLevelId, startTileX, endTileX, startTileY, endTileY, getTile);
       this.staticDirty = false;
     }
 
     // Динамический слой (floor, portal, unlinked-portal) - каждый кадр
-    this.redrawDynamicLayer(
-      currentLevelId,
-      startTileX,
-      endTileX,
-      startTileY,
-      endTileY,
-      getTile
-    );
+    this.redrawDynamicLayer(currentLevelId, startTileX, endTileX, startTileY, endTileY, getTile);
 
     // Сетка
     if (showGrid) {
@@ -131,47 +117,27 @@ export class GridRenderer {
           // Добавляем визуальный индикатор для несвязанного портала
           if (tile.type === 'unlinked-portal') {
             this.dynamicGraphics.lineStyle(2, 0xffff00, 0.5);
-            this.dynamicGraphics.strokeRect(
-              worldX + 4,
-              worldY + 4,
-              TILE_SIZE - 8,
-              TILE_SIZE - 8
-            );
+            this.dynamicGraphics.strokeRect(worldX + 4, worldY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
           }
         }
       }
     }
   }
 
-  private redrawGrid(
-    startX: number,
-    endX: number,
-    startY: number,
-    endY: number
-  ) {
+  private redrawGrid(startX: number, endX: number, startY: number, endY: number) {
     this.gridGraphics.clear();
     this.gridGraphics.lineStyle(1, GRID_CONFIG.color, GRID_CONFIG.alpha);
 
     // Вертикальные линии
     for (let x = startX; x <= endX; x++) {
       const worldX = x * TILE_SIZE;
-      this.gridGraphics.lineBetween(
-        worldX,
-        startY * TILE_SIZE,
-        worldX,
-        endY * TILE_SIZE
-      );
+      this.gridGraphics.lineBetween(worldX, startY * TILE_SIZE, worldX, endY * TILE_SIZE);
     }
 
     // Горизонтальные линии
     for (let y = startY; y <= endY; y++) {
       const worldY = y * TILE_SIZE;
-      this.gridGraphics.lineBetween(
-        startX * TILE_SIZE,
-        worldY,
-        endX * TILE_SIZE,
-        worldY
-      );
+      this.gridGraphics.lineBetween(startX * TILE_SIZE, worldY, endX * TILE_SIZE, worldY);
     }
   }
 
@@ -181,4 +147,3 @@ export class GridRenderer {
     this.gridGraphics.destroy();
   }
 }
-

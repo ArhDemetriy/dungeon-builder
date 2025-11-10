@@ -1,6 +1,7 @@
-import { gameConfig } from '@/game/config';
 import { Game } from 'phaser';
 import { useEffect, useRef } from 'react';
+
+import { gameConfig } from '@/game/config';
 
 export function PhaserGame() {
   const gameRef = useRef<Game>(null);

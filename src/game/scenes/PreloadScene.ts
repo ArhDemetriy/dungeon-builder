@@ -14,4 +14,3 @@ export class PreloadScene extends Scene {
     this.scene.start('MainScene');
   }
 }
-
