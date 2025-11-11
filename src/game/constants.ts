@@ -1,3 +1,5 @@
+import type { PrimitiveTile } from '@/types/level';
+
 export const TILE_SIZE = 32;
 
 export const TILE_COLORS = {
@@ -6,6 +8,8 @@ export const TILE_COLORS = {
   portal: 0x00ffff,
   'unlinked-portal': 0x666666,
 } as const;
+
+export const DEFAULT_TILE = { type: 'wall' } satisfies PrimitiveTile;
 
 export const GRID_CONFIG = {
   color: 0x333333,
