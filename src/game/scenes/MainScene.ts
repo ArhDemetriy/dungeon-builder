@@ -10,8 +10,6 @@ import { useToolbarStore } from '@/store/toolbarStore';
 import { useUIStore } from '@/store/uiStore';
 
 export class MainScene extends Scene {
-  private gridRenderer!: GridRenderer;
-
   private debouncedSaveZoom = debounce((zoom: number) => {
     useCameraZoomStore.getState().setZoom(zoom);
   }, 200);
@@ -25,8 +23,6 @@ export class MainScene extends Scene {
   }
 
   create() {
-    const { main: camera } = this.cameras;
-
     // Инициализируем первый уровень если его нет
     const { levels, createLevel } = useLevelStore.getState();
     if (levels.size === 0) {
@@ -37,11 +33,9 @@ export class MainScene extends Scene {
     const { zoom } = useCameraZoomStore.getState();
     const { position } = useCameraPositionStore.getState();
 
+    const { main: camera } = this.cameras;
     camera.setZoom(zoom);
     camera.setScroll(position.x, position.y);
-
-    // Инициализируем GridRenderer
-    this.gridRenderer = new GridRenderer(this);
 
     // Зум с фокусом на курсоре
     this.input.on('wheel', (pointer: Phaser.Input.Pointer, _gameObjects: unknown, _deltaX: number, deltaY: number) => {
@@ -111,7 +105,10 @@ export class MainScene extends Scene {
       },
       loop: true,
     });
+
+    this.gridRenderer = new GridRenderer(this);
   }
+  private gridRenderer!: GridRenderer;
 
   private placeTile(pointer: Phaser.Input.Pointer) {
     const { currentLevelId, setTile } = useLevelStore.getState();
