@@ -12,7 +12,8 @@ import { useUIStore } from '@/store/uiStore';
 export class MainScene extends Scene {
   private gridRenderer!: GridRenderer;
   private zoomController!: CameraZoomController;
-  private cursorKeys?: { [k in 'up' | 'left' | 'down' | 'right']?: Input.Keyboard.Key };
+  private сameraMoveController!: CameraMoveController;
+
   constructor() {
     super({ key: 'MainScene' });
   }
@@ -32,22 +33,19 @@ export class MainScene extends Scene {
     camera.setZoom(zoom);
     camera.setScroll(position.x, position.y);
 
-    // Инициализируем контроллер зума
-    this.zoomController = new CameraZoomController(camera, this.input);
-    this.zoomController.initialize();
-
-    this.cursorKeys =
-      MOVEMENT_CONFIG.moveInput === 'cursor'
-        ? (this.input.keyboard?.createCursorKeys() satisfies typeof this.cursorKeys)
-        : (this.input.keyboard?.addKeys({
-            up: Input.Keyboard.KeyCodes.W,
-            left: Input.Keyboard.KeyCodes.A,
-            down: Input.Keyboard.KeyCodes.S,
-            right: Input.Keyboard.KeyCodes.D,
-          }) as typeof this.cursorKeys);
+    const { input } = this;
+    this.сameraMoveController = new CameraMoveController({
+      camera,
+      input,
+    });
+    this.zoomController = new CameraZoomController({
+      camera,
+      input,
+      saveCameraPosition: CameraMoveController.debouncedSavePosition,
+    });
 
     // ЛКМ - строить тайл
-    this.input.on('pointerdown', (pointer: Input.Pointer) => {
+    input.on('pointerdown', (pointer: Input.Pointer) => {
       if (pointer.button === 0) {
         // ЛКМ
         this.placeTile(pointer);
@@ -58,18 +56,18 @@ export class MainScene extends Scene {
     });
 
     // Клавиши 1/2/3 - выбор тайла
-    this.input.keyboard?.on('keydown-ONE', () => {
+    input.keyboard?.on('keydown-ONE', () => {
       useToolbarStore.getState().setActiveTile('wall');
     });
-    this.input.keyboard?.on('keydown-TWO', () => {
+    input.keyboard?.on('keydown-TWO', () => {
       useToolbarStore.getState().setActiveTile('floor');
     });
-    this.input.keyboard?.on('keydown-THREE', () => {
+    input.keyboard?.on('keydown-THREE', () => {
       useToolbarStore.getState().setActiveTile('unlinked-portal');
     });
 
     // G - toggle сетки
-    this.input.keyboard?.on('keydown-G', () => {
+    input.keyboard?.on('keydown-G', () => {
       useUIStore.getState().toggleGrid();
     });
 
@@ -134,23 +132,7 @@ export class MainScene extends Scene {
   update(time: number, delta: number) {
     super.update(time, delta);
     const { main: camera } = this.cameras;
-
-    if (this.cursorKeys) {
-      const { up, down, left, right } = this.cursorKeys;
-      const x = (left?.isDown ? -1 : 0) + (right?.isDown ? 1 : 0);
-      const y = (up?.isDown ? -1 : 0) + (down?.isDown ? 1 : 0);
-      const moved = x || y;
-      if (moved) {
-        const isDiagonale = x && y;
-        const cosPI2 = 0.7071067811865476;
-        const move = Math.round(
-          delta * CAMERA_CONFIG.moveSpeed * (isDiagonale ? cosPI2 : 1) * (CAMERA_CONFIG.maxZoom / camera.zoom)
-        );
-        if (x) camera.scrollX += x * move;
-        if (y) camera.scrollY += y * move;
-        debouncedSavePosition(camera.scrollX, camera.scrollY);
-      }
-    }
+    this.сameraMoveController.handleMovement(delta);
 
     // Рендерим сетку
     const { showGrid } = useUIStore.getState();
@@ -158,27 +140,70 @@ export class MainScene extends Scene {
   }
 }
 
+class CameraMoveController {
+  private readonly input: Input.InputPlugin;
+  private readonly camera: Cameras.Scene2D.Camera;
+  private readonly cursorKeys?: { [k in 'up' | 'left' | 'down' | 'right']?: Input.Keyboard.Key };
+
+  constructor({ camera, input }: { camera: Cameras.Scene2D.Camera; input: Input.InputPlugin }) {
+    this.input = input;
+    this.camera = camera;
+    this.cursorKeys =
+      MOVEMENT_CONFIG.moveInput === 'cursor'
+        ? (this.input.keyboard?.createCursorKeys() satisfies typeof this.cursorKeys)
+        : (this.input.keyboard?.addKeys({
+            up: Input.Keyboard.KeyCodes.W,
+            left: Input.Keyboard.KeyCodes.A,
+            down: Input.Keyboard.KeyCodes.S,
+            right: Input.Keyboard.KeyCodes.D,
+          }) as typeof this.cursorKeys);
+  }
+
+  handleMovement(delta: number) {
+    if (this.cursorKeys) {
+      const { up, down, left, right } = this.cursorKeys;
+      const x = (left?.isDown ? -1 : 0) + (right?.isDown ? 1 : 0);
+      const y = (up?.isDown ? -1 : 0) + (down?.isDown ? 1 : 0);
+      const moved = x || y;
+      if (moved) {
+        const isDiagonale = x && y;
+        const cosPI4 = 0.7071067811865476;
+        const move = Math.round(
+          delta * CAMERA_CONFIG.moveSpeed * (isDiagonale ? cosPI4 : 1) * (CAMERA_CONFIG.maxZoom / this.camera.zoom)
+        );
+        if (x) this.camera.scrollX += x * move;
+        if (y) this.camera.scrollY += y * move;
+        CameraMoveController.debouncedSavePosition(this.camera.scrollX, this.camera.scrollY);
+      }
+    }
+  }
+
+  static readonly debouncedSavePosition = debounce(
+    (x: number, y: number) => useCameraPositionStore.getState().setPosition(x, y),
+    500
+  );
+}
+
 class CameraZoomController {
   private readonly camera: Cameras.Scene2D.Camera;
   private readonly input: Input.InputPlugin;
-
-  constructor(camera: Cameras.Scene2D.Camera, input: Input.InputPlugin) {
+  private readonly saveCameraPosition: (x: number, y: number) => unknown;
+  constructor({
+    camera,
+    input,
+    saveCameraPosition,
+  }: {
+    camera: Cameras.Scene2D.Camera;
+    input: Input.InputPlugin;
+    saveCameraPosition: (x: number, y: number) => unknown;
+  }) {
     this.camera = camera;
+    this.saveCameraPosition = saveCameraPosition;
     this.input = input;
+    this.input.on('wheel', (pointer: Input.Pointer, _gameObjects: unknown, deltaX: number, deltaY: number) =>
+      this.handleWheel(pointer, deltaY || deltaX)
+    );
   }
-
-  initialize() {
-    this.input.on('wheel', (_pointer: Input.Pointer, _gameObjects: unknown, deltaX: number, deltaY: number) => {
-      // Используем activePointer для получения актуальных координат мыши
-      const pointer = this.input.activePointer;
-      this.handleWheel(pointer, deltaY || deltaX);
-    });
-  }
-
-  private static readonly debouncedSaveZoom = debounce(
-    (zoom: number) => useCameraZoomStore.getState().setZoom(zoom),
-    200
-  );
 
   private handleWheel(_pointer: Input.Pointer, deltaY: number) {
     const oldZoom = this.camera.zoom;
@@ -189,15 +214,11 @@ class CameraZoomController {
     if (newZoom === oldZoom) return;
 
     CameraZoomController.debouncedSaveZoom(this.camera.setZoom(newZoom).zoom);
-    debouncedSavePosition(this.camera.scrollX, this.camera.scrollY);
+    this.saveCameraPosition(this.camera.scrollX, this.camera.scrollY);
   }
 
-  destroy() {
-    this.input.off('wheel');
-  }
+  private static readonly debouncedSaveZoom = debounce(
+    (zoom: number) => useCameraZoomStore.getState().setZoom(zoom),
+    200
+  );
 }
-
-const debouncedSavePosition = debounce(
-  (x: number, y: number) => useCameraPositionStore.getState().setPosition(x, y),
-  500
-);
