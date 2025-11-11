@@ -1,20 +1,18 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 
-export const useSaveStore = create<{
+interface SaveStore {
   isDirty: boolean;
-  markDirty(): void;
-  clearDirty(): void;
-}>()(
+  markDirty: () => void;
+  clearDirty: () => void;
+}
+
+export const useSaveStore = create<SaveStore>()(
   devtools(
-    set => ({
+    (set) => ({
       isDirty: false,
-      markDirty() {
-        if (!this.isDirty) set({ isDirty: true });
-      },
-      clearDirty() {
-        if (this.isDirty) set({ isDirty: false });
-      },
+      markDirty: () => set({ isDirty: true }),
+      clearDirty: () => set({ isDirty: false }),
     }),
     { name: 'SaveStore' }
   )

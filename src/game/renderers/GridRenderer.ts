@@ -5,20 +5,19 @@ import { useLevelStore } from '@/store/levelStore';
 import type { GridTile } from '@/types/level';
 
 export class GridRenderer {
-  private scene: Phaser.Scene;
   private staticLayer: Phaser.GameObjects.RenderTexture;
+  private staticGraphics: Phaser.GameObjects.Graphics;
   private dynamicGraphics: Phaser.GameObjects.Graphics;
   private gridGraphics: Phaser.GameObjects.Graphics;
   private staticDirty = true;
 
   constructor(scene: Phaser.Scene) {
-    this.scene = scene;
-
     // Создаем большую текстуру для статического слоя (wall тайлы)
     // Размер достаточно большой для видимой области
     this.staticLayer = scene.add.renderTexture(0, 0, 10000, 10000);
     this.staticLayer.setOrigin(0.5, 0.5);
 
+    this.staticGraphics = scene.add.graphics();
     this.dynamicGraphics = scene.add.graphics();
     this.gridGraphics = scene.add.graphics();
   }
@@ -64,6 +63,7 @@ export class GridRenderer {
     getTile: (id: string, x: number, y: number) => GridTile
   ) {
     this.staticLayer.clear();
+    this.staticGraphics.clear();
 
     for (let y = startY; y <= endY; y++) {
       for (let x = startX; x <= endX; x++) {
@@ -72,11 +72,14 @@ export class GridRenderer {
           const worldX = x * TILE_SIZE;
           const worldY = y * TILE_SIZE;
 
-          this.staticLayer.fill(TILE_COLORS.wall);
-          this.staticLayer.drawRect(worldX, worldY, TILE_SIZE, TILE_SIZE);
+          this.staticGraphics.fillStyle(TILE_COLORS.wall);
+          this.staticGraphics.fillRect(worldX, worldY, TILE_SIZE, TILE_SIZE);
         }
       }
     }
+
+    // Рисуем Graphics на RenderTexture
+    this.staticLayer.draw(this.staticGraphics);
   }
 
   private redrawDynamicLayer(
@@ -143,6 +146,7 @@ export class GridRenderer {
 
   destroy() {
     this.staticLayer.destroy();
+    this.staticGraphics.destroy();
     this.dynamicGraphics.destroy();
     this.gridGraphics.destroy();
   }
