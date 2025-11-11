@@ -1,5 +1,5 @@
 import { debounce } from 'lodash-es';
-import { Scene } from 'phaser';
+import { type Cameras, type Input, Scene } from 'phaser';
 
 import { CAMERA_CONFIG, SAVE_CONFIG, TILE_SIZE } from '@/game/constants';
 import { GridRenderer } from '@/game/renderers/GridRenderer';
@@ -8,80 +8,6 @@ import { useLevelStore } from '@/store/levelStore';
 import { useSaveStore } from '@/store/saveStore';
 import { useToolbarStore } from '@/store/toolbarStore';
 import { useUIStore } from '@/store/uiStore';
-
-class CameraZoomController {
-  private camera: Phaser.Cameras.Scene2D.Camera;
-  private input: Phaser.Input.InputPlugin;
-
-  private debouncedSaveZoom: (zoom: number) => void;
-  private debouncedSavePosition: (x: number, y: number) => void;
-
-  constructor(camera: Phaser.Cameras.Scene2D.Camera, input: Phaser.Input.InputPlugin) {
-    this.camera = camera;
-    this.input = input;
-
-    this.debouncedSaveZoom = debounce((zoom: number) => {
-      useCameraZoomStore.getState().setZoom(zoom);
-    }, 200);
-
-    this.debouncedSavePosition = debounce((x: number, y: number) => {
-      useCameraPositionStore.getState().setPosition(x, y);
-    }, 500);
-  }
-
-  initialize() {
-    // Настройка wheel listener для зума
-    this.input.on(
-      'wheel',
-      (
-        pointer: Phaser.Input.Pointer,
-        _gameObjects: unknown,
-        _deltaX: number,
-        deltaY: number
-      ) => {
-        this.handleWheel(pointer, deltaY);
-      }
-    );
-  }
-
-  private handleWheel(pointer: Phaser.Input.Pointer, deltaY: number) {
-    const oldZoom = this.camera.zoom;
-    const newZoom = Math.max(
-      CAMERA_CONFIG.minZoom,
-      Math.min(
-        CAMERA_CONFIG.maxZoom,
-        oldZoom - deltaY * 0.001 * CAMERA_CONFIG.zoomSpeed
-      )
-    );
-
-    if (oldZoom !== newZoom) {
-      // Запоминаем мировую позицию под курсором ДО зума
-      const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
-
-      // Применяем новый зум
-      this.camera.setZoom(newZoom);
-
-      // Вычисляем новую мировую позицию под курсором ПОСЛЕ зума
-      const newWorldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
-
-      // Корректируем камеру чтобы курсор остался на том же месте
-      this.camera.scrollX += worldPoint.x - newWorldPoint.x;
-      this.camera.scrollY += worldPoint.y - newWorldPoint.y;
-
-      // Сохраняем в stores с debounce
-      this.debouncedSaveZoom(newZoom);
-      this.debouncedSavePosition(this.camera.scrollX, this.camera.scrollY);
-    }
-  }
-
-  savePosition(x: number, y: number) {
-    this.debouncedSavePosition(x, y);
-  }
-
-  destroy() {
-    this.input.off('wheel');
-  }
-}
 
 export class MainScene extends Scene {
   private gridRenderer!: GridRenderer;
@@ -230,5 +156,63 @@ export class MainScene extends Scene {
     // Рендерим сетку
     const { showGrid } = useUIStore.getState();
     this.gridRenderer.render(camera, showGrid);
+  }
+}
+
+class CameraZoomController {
+  private readonly camera: Cameras.Scene2D.Camera;
+  private readonly input: Input.InputPlugin;
+
+  private static readonly debouncedSaveZoom = debounce(
+    (zoom: number) => useCameraZoomStore.getState().setZoom(zoom),
+    200
+  );
+  private static readonly debouncedSavePosition = debounce(
+    (x: number, y: number) => useCameraPositionStore.getState().setPosition(x, y),
+    500
+  );
+
+  constructor(camera: Cameras.Scene2D.Camera, input: Input.InputPlugin) {
+    this.camera = camera;
+    this.input = input;
+  }
+
+  initialize() {
+    this.input.on('wheel', (pointer: Input.Pointer, _gameObjects: unknown, deltaX: number, deltaY: number) =>
+      this.handleWheel(pointer, deltaY || deltaX)
+    );
+  }
+
+  private handleWheel(pointer: Input.Pointer, deltaY: number) {
+    const newZoom = Math.max(
+      CAMERA_CONFIG.minZoom,
+      Math.min(CAMERA_CONFIG.maxZoom, this.camera.zoom - 0.001 * CAMERA_CONFIG.zoomSpeed * deltaY)
+    );
+    if (newZoom === this.camera.zoom) return;
+
+    // Запоминаем мировую позицию под курсором ДО зума
+    const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
+
+    // Применяем новый зум
+    this.camera.setZoom(newZoom);
+
+    // Вычисляем новую мировую позицию под курсором ПОСЛЕ зума
+    const newWorldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
+
+    // Корректируем камеру чтобы курсор остался на том же месте
+    this.camera.scrollX += worldPoint.x - newWorldPoint.x;
+    this.camera.scrollY += worldPoint.y - newWorldPoint.y;
+
+    // Сохраняем в stores с debounce
+    CameraZoomController.debouncedSaveZoom(newZoom);
+    CameraZoomController.debouncedSavePosition(this.camera.scrollX, this.camera.scrollY);
+  }
+
+  savePosition(x: number, y: number) {
+    CameraZoomController.debouncedSavePosition(x, y);
+  }
+
+  destroy() {
+    this.input.off('wheel');
   }
 }
