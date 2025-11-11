@@ -1,7 +1,7 @@
 import { debounce } from 'lodash-es';
-import { type Cameras, type Input, Scene } from 'phaser';
+import { type Cameras, Input, Scene } from 'phaser';
 
-import { CAMERA_CONFIG, SAVE_CONFIG, TILE_SIZE } from '@/game/constants';
+import { CAMERA_CONFIG, MOVEMENT_CONFIG, SAVE_CONFIG, TILE_SIZE } from '@/game/constants';
 import { GridRenderer } from '@/game/renderers/GridRenderer';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
 import { useLevelStore } from '@/store/levelStore';
@@ -12,7 +12,7 @@ import { useUIStore } from '@/store/uiStore';
 export class MainScene extends Scene {
   private gridRenderer!: GridRenderer;
   private zoomController!: CameraZoomController;
-
+  private cursorKeys?: { [k in 'up' | 'left' | 'down' | 'right']?: Input.Keyboard.Key };
   constructor() {
     super({ key: 'MainScene' });
   }
@@ -35,6 +35,16 @@ export class MainScene extends Scene {
     // Инициализируем контроллер зума
     this.zoomController = new CameraZoomController(camera, this.input);
     this.zoomController.initialize();
+
+    this.cursorKeys =
+      MOVEMENT_CONFIG.moveInput === 'cursor'
+        ? (this.input.keyboard?.createCursorKeys() satisfies typeof this.cursorKeys)
+        : (this.input.keyboard?.addKeys({
+            up: Input.Keyboard.KeyCodes.W,
+            left: Input.Keyboard.KeyCodes.A,
+            down: Input.Keyboard.KeyCodes.S,
+            right: Input.Keyboard.KeyCodes.D,
+          }) as typeof this.cursorKeys);
 
     // ЛКМ - строить тайл
     this.input.on('pointerdown', (pointer: Input.Pointer) => {
@@ -121,36 +131,25 @@ export class MainScene extends Scene {
     }
   }
 
-  update() {
-    const camera = this.cameras.main;
-    let moved = false;
+  update(time: number, delta: number) {
+    super.update(time, delta);
+    const { main: camera } = this.cameras;
 
-    // WASD управление
-    const keyW = this.input.keyboard?.addKey('W');
-    const keyS = this.input.keyboard?.addKey('S');
-    const keyA = this.input.keyboard?.addKey('A');
-    const keyD = this.input.keyboard?.addKey('D');
-
-    if (keyW?.isDown) {
-      camera.scrollY -= CAMERA_CONFIG.moveSpeed;
-      moved = true;
-    }
-    if (keyS?.isDown) {
-      camera.scrollY += CAMERA_CONFIG.moveSpeed;
-      moved = true;
-    }
-    if (keyA?.isDown) {
-      camera.scrollX -= CAMERA_CONFIG.moveSpeed;
-      moved = true;
-    }
-    if (keyD?.isDown) {
-      camera.scrollX += CAMERA_CONFIG.moveSpeed;
-      moved = true;
-    }
-
-    // Сохраняем позицию если двигались
-    if (moved) {
-      this.zoomController.savePosition(camera.scrollX, camera.scrollY);
+    if (this.cursorKeys) {
+      const { up, down, left, right } = this.cursorKeys;
+      const x = (left?.isDown ? -1 : 0) + (right?.isDown ? 1 : 0);
+      const y = (up?.isDown ? -1 : 0) + (down?.isDown ? 1 : 0);
+      const moved = x || y;
+      if (moved) {
+        const isDiagonale = x && y;
+        const cosPI2 = 0.7071067811865476;
+        const move = Math.round(
+          delta * CAMERA_CONFIG.moveSpeed * (isDiagonale ? cosPI2 : 1) * (CAMERA_CONFIG.maxZoom / camera.zoom)
+        );
+        if (x) camera.scrollX += x * move;
+        if (y) camera.scrollY += y * move;
+        debouncedSavePosition(camera.scrollX, camera.scrollY);
+      }
     }
 
     // Рендерим сетку
@@ -169,50 +168,36 @@ class CameraZoomController {
   }
 
   initialize() {
-    this.input.on('wheel', (pointer: Input.Pointer, _gameObjects: unknown, deltaX: number, deltaY: number) =>
-      this.handleWheel(pointer, deltaY || deltaX)
-    );
+    this.input.on('wheel', (_pointer: Input.Pointer, _gameObjects: unknown, deltaX: number, deltaY: number) => {
+      // Используем activePointer для получения актуальных координат мыши
+      const pointer = this.input.activePointer;
+      this.handleWheel(pointer, deltaY || deltaX);
+    });
   }
 
   private static readonly debouncedSaveZoom = debounce(
     (zoom: number) => useCameraZoomStore.getState().setZoom(zoom),
     200
   );
-  private static readonly debouncedSavePosition = debounce(
-    (x: number, y: number) => useCameraPositionStore.getState().setPosition(x, y),
-    500
-  );
 
-  private handleWheel(pointer: Input.Pointer, deltaY: number) {
+  private handleWheel(_pointer: Input.Pointer, deltaY: number) {
+    const oldZoom = this.camera.zoom;
     const newZoom = Math.max(
       CAMERA_CONFIG.minZoom,
-      Math.min(CAMERA_CONFIG.maxZoom, this.camera.zoom - 0.001 * CAMERA_CONFIG.zoomSpeed * deltaY)
+      Math.min(CAMERA_CONFIG.maxZoom, oldZoom - 0.001 * CAMERA_CONFIG.zoomSpeed * deltaY)
     );
-    if (newZoom === this.camera.zoom) return;
+    if (newZoom === oldZoom) return;
 
-    // Запоминаем мировую позицию под курсором ДО зума
-    const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
-
-    // Применяем новый зум
-    this.camera.setZoom(newZoom);
-
-    // Вычисляем новую мировую позицию под курсором ПОСЛЕ зума
-    const newWorldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
-
-    // Корректируем камеру чтобы курсор остался на том же месте
-    this.camera.scrollX += worldPoint.x - newWorldPoint.x;
-    this.camera.scrollY += worldPoint.y - newWorldPoint.y;
-
-    // Сохраняем в stores с debounce
-    CameraZoomController.debouncedSaveZoom(newZoom);
-    CameraZoomController.debouncedSavePosition(this.camera.scrollX, this.camera.scrollY);
-  }
-
-  savePosition(x: number, y: number) {
-    CameraZoomController.debouncedSavePosition(x, y);
+    CameraZoomController.debouncedSaveZoom(this.camera.setZoom(newZoom).zoom);
+    debouncedSavePosition(this.camera.scrollX, this.camera.scrollY);
   }
 
   destroy() {
     this.input.off('wheel');
   }
 }
+
+const debouncedSavePosition = debounce(
+  (x: number, y: number) => useCameraPositionStore.getState().setPosition(x, y),
+  500
+);

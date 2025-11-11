@@ -13,10 +13,14 @@ export const GRID_CONFIG = {
 } as const;
 
 export const CAMERA_CONFIG = {
-  minZoom: 0.5,
+  minZoom: 0.2,
   maxZoom: 3,
-  zoomSpeed: 0.1,
-  moveSpeed: 5,
+  zoomSpeed: 0.2,
+  moveSpeed: 0.25,
+} as const;
+
+export const MOVEMENT_CONFIG = {
+  moveInput: 'wasd' as 'wasd' | 'cursor',
 } as const;
 
 export const SAVE_CONFIG = {
