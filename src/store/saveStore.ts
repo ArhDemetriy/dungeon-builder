@@ -9,9 +9,9 @@ interface SaveStore {
 
 export const useSaveStore = create<SaveStore>()(
   devtools(
-    (set) => ({
+    (set, get) => ({
       isDirty: false,
-      markDirty: () => set({ isDirty: true }),
+      markDirty: () => !get().isDirty && set({ isDirty: true }),
       clearDirty: () => set({ isDirty: false }),
     }),
     { name: 'SaveStore' }

@@ -25,7 +25,7 @@ export class MainScene extends Scene {
   }
 
   create() {
-    const camera = this.cameras.main;
+    const { main: camera } = this.cameras;
 
     // Инициализируем первый уровень если его нет
     const { levels, createLevel } = useLevelStore.getState();
