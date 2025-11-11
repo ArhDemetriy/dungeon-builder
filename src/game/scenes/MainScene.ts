@@ -1,16 +1,17 @@
 import { debounce } from 'lodash-es';
 import { type Cameras, Input, Scene } from 'phaser';
 
-import { CAMERA_CONFIG, MOVEMENT_CONFIG, SAVE_CONFIG, TILE_SIZE } from '@/game/constants';
+import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_SIZE } from '@/game/constants';
 import { GridRenderer } from '@/game/renderers/GridRenderer';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
 import { useLevelStore } from '@/store/levelStore';
-import { useSaveStore } from '@/store/saveStore';
 import { useToolbarStore } from '@/store/toolbarStore';
 import { useUIStore } from '@/store/uiStore';
+import { isPrimitiveTile } from '@/types/level';
 
 export class MainScene extends Scene {
   private gridRenderer!: GridRenderer;
+  // @ts-expect-error - контроллер не используется напрямую, но необходим для управления зумом
   private zoomController!: CameraZoomController;
   private сameraMoveController!: CameraMoveController;
 
@@ -25,15 +26,9 @@ export class MainScene extends Scene {
       createLevel('Уровень 1');
     }
 
-    // Восстанавливаем сохраненное состояние камеры
-    const { zoom } = useCameraZoomStore.getState();
-    const { position } = useCameraPositionStore.getState();
-
     const { main: camera } = this.cameras;
-    camera.setZoom(zoom);
-    camera.setScroll(position.x, position.y);
-
     const { input } = this;
+
     this.сameraMoveController = new CameraMoveController({
       camera,
       input,
@@ -55,35 +50,8 @@ export class MainScene extends Scene {
       }
     });
 
-    // Клавиши 1/2/3 - выбор тайла
-    input.keyboard?.on('keydown-ONE', () => {
-      useToolbarStore.getState().setActiveTile('wall');
-    });
-    input.keyboard?.on('keydown-TWO', () => {
-      useToolbarStore.getState().setActiveTile('floor');
-    });
-    input.keyboard?.on('keydown-THREE', () => {
-      useToolbarStore.getState().setActiveTile('unlinked-portal');
-    });
-
-    // G - toggle сетки
-    input.keyboard?.on('keydown-G', () => {
-      useUIStore.getState().toggleGrid();
-    });
-
-    // Автосохранение каждые 30 секунд
-    this.time.addEvent({
-      delay: SAVE_CONFIG.autoSaveInterval,
-      callback: () => {
-        const { isDirty, clearDirty } = useSaveStore.getState();
-
-        if (isDirty) {
-          console.log('Автосохранение...');
-          clearDirty();
-        }
-      },
-      loop: true,
-    });
+    // Регистрируем интерфейсные клавиши
+    if (input.keyboard) registerUIKeyboardBindings(input.keyboard);
 
     this.gridRenderer = new GridRenderer(this);
   }
@@ -92,19 +60,14 @@ export class MainScene extends Scene {
     const { currentLevelId, setTile } = useLevelStore.getState();
     if (!currentLevelId) return;
 
-    const { activeTile } = useToolbarStore.getState();
-
     // Конвертируем позицию клика в координаты тайла
     const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     const tileX = Math.floor(worldPoint.x / TILE_SIZE);
     const tileY = Math.floor(worldPoint.y / TILE_SIZE);
 
     // Размещаем тайл
-    if (activeTile === 'unlinked-portal') {
-      setTile(currentLevelId, tileX, tileY, { type: 'unlinked-portal' });
-    } else {
-      setTile(currentLevelId, tileX, tileY, { type: activeTile });
-    }
+    const { activeTile } = useToolbarStore.getState();
+    setTile(currentLevelId, tileX, tileY, { type: activeTile });
 
     // Отмечаем что статический слой нужно перерисовать если это wall
     if (activeTile === 'wall') {
@@ -123,10 +86,7 @@ export class MainScene extends Scene {
 
     const tile = getTile(currentLevelId, tileX, tileY);
 
-    // Копируем тип тайла в активный инструмент
-    if (tile.type === 'wall' || tile.type === 'floor' || tile.type === 'unlinked-portal') {
-      useToolbarStore.getState().setActiveTile(tile.type);
-    }
+    if (isPrimitiveTile(tile)) useToolbarStore.getState().setActiveTile(tile.type);
   }
 
   update(time: number, delta: number) {
@@ -148,6 +108,10 @@ class CameraMoveController {
   constructor({ camera, input }: { camera: Cameras.Scene2D.Camera; input: Input.InputPlugin }) {
     this.input = input;
     this.camera = camera;
+
+    const { position } = useCameraPositionStore.getState();
+    this.camera.setScroll(position.x, position.y);
+
     this.cursorKeys =
       MOVEMENT_CONFIG.moveInput === 'cursor'
         ? (this.input.keyboard?.createCursorKeys() satisfies typeof this.cursorKeys)
@@ -200,6 +164,10 @@ class CameraZoomController {
     this.camera = camera;
     this.saveCameraPosition = saveCameraPosition;
     this.input = input;
+
+    const { zoom } = useCameraZoomStore.getState();
+    this.camera.setZoom(zoom);
+
     this.input.on('wheel', (pointer: Input.Pointer, _gameObjects: unknown, deltaX: number, deltaY: number) =>
       this.handleWheel(pointer, deltaY || deltaX)
     );
@@ -221,4 +189,25 @@ class CameraZoomController {
     (zoom: number) => useCameraZoomStore.getState().setZoom(zoom),
     200
   );
+}
+
+/**
+ * Регистрирует клавиатурные привязки для управления интерфейсом
+ */
+function registerUIKeyboardBindings(keyboard: Input.Keyboard.KeyboardPlugin) {
+  // Клавиши 1/2/3 - выбор тайла
+  keyboard.on('keydown-ONE', () => {
+    useToolbarStore.getState().setActiveTile('wall');
+  });
+  keyboard.on('keydown-TWO', () => {
+    useToolbarStore.getState().setActiveTile('floor');
+  });
+  keyboard.on('keydown-THREE', () => {
+    useToolbarStore.getState().setActiveTile('unlinked-portal');
+  });
+
+  // G - toggle сетки
+  keyboard.on('keydown-G', () => {
+    useUIStore.getState().toggleGrid();
+  });
 }

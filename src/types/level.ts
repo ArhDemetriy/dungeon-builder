@@ -1,12 +1,8 @@
 export interface RegularTile {
-  type: 'wall' | 'floor';
+  type: 'wall' | 'floor' | 'unlinked-portal';
 }
 
-export interface UnlinkedPortalTile {
-  type: 'unlinked-portal';
-}
-
-export type PrimitiveTile = RegularTile | UnlinkedPortalTile;
+export type PrimitiveTile = RegularTile;
 
 export interface PortalTile {
   type: 'portal';
@@ -16,6 +12,10 @@ export interface PortalTile {
 export type ComplexTile = PortalTile;
 
 export type GridTile = PrimitiveTile | ComplexTile;
+
+export function isPrimitiveTile(tile: GridTile): tile is PrimitiveTile {
+  return tile.type === 'wall' || tile.type === 'floor' || tile.type === 'unlinked-portal';
+}
 
 export interface Portal {
   id: string;
