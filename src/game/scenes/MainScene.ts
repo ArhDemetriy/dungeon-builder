@@ -37,7 +37,7 @@ export class MainScene extends Scene {
     this.zoomController.initialize();
 
     // ЛКМ - строить тайл
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+    this.input.on('pointerdown', (pointer: Input.Pointer) => {
       if (pointer.button === 0) {
         // ЛКМ
         this.placeTile(pointer);
@@ -80,7 +80,7 @@ export class MainScene extends Scene {
     this.gridRenderer = new GridRenderer(this);
   }
 
-  private placeTile(pointer: Phaser.Input.Pointer) {
+  private placeTile(pointer: Input.Pointer) {
     const { currentLevelId, setTile } = useLevelStore.getState();
     if (!currentLevelId) return;
 
@@ -104,7 +104,7 @@ export class MainScene extends Scene {
     }
   }
 
-  private eyedropperTool(pointer: Phaser.Input.Pointer) {
+  private eyedropperTool(pointer: Input.Pointer) {
     const { currentLevelId, getTile } = useLevelStore.getState();
     if (!currentLevelId) return;
 
@@ -163,15 +163,6 @@ class CameraZoomController {
   private readonly camera: Cameras.Scene2D.Camera;
   private readonly input: Input.InputPlugin;
 
-  private static readonly debouncedSaveZoom = debounce(
-    (zoom: number) => useCameraZoomStore.getState().setZoom(zoom),
-    200
-  );
-  private static readonly debouncedSavePosition = debounce(
-    (x: number, y: number) => useCameraPositionStore.getState().setPosition(x, y),
-    500
-  );
-
   constructor(camera: Cameras.Scene2D.Camera, input: Input.InputPlugin) {
     this.camera = camera;
     this.input = input;
@@ -182,6 +173,15 @@ class CameraZoomController {
       this.handleWheel(pointer, deltaY || deltaX)
     );
   }
+
+  private static readonly debouncedSaveZoom = debounce(
+    (zoom: number) => useCameraZoomStore.getState().setZoom(zoom),
+    200
+  );
+  private static readonly debouncedSavePosition = debounce(
+    (x: number, y: number) => useCameraPositionStore.getState().setPosition(x, y),
+    500
+  );
 
   private handleWheel(pointer: Input.Pointer, deltaY: number) {
     const newZoom = Math.max(
