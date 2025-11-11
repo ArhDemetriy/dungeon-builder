@@ -14,6 +14,8 @@ export class MainScene extends Scene {
   // @ts-expect-error - контроллер не используется напрямую, но необходим для управления зумом
   private zoomController!: CameraZoomController;
   private сameraMoveController!: CameraMoveController;
+  // @ts-expect-error - контроллер не используется напрямую, но необходим для управления тайлами
+  private tileController!: TileController;
 
   constructor() {
     super({ key: 'MainScene' });
@@ -29,6 +31,8 @@ export class MainScene extends Scene {
     const { main: camera } = this.cameras;
     const { input } = this;
 
+    this.gridRenderer = new GridRenderer(this);
+
     this.сameraMoveController = new CameraMoveController({
       camera,
       input,
@@ -38,22 +42,55 @@ export class MainScene extends Scene {
       input,
       saveCameraPosition: CameraMoveController.debouncedSavePosition,
     });
+    this.tileController = new TileController({
+      camera,
+      input,
+      gridRenderer: this.gridRenderer,
+    });
 
-    // ЛКМ - строить тайл
-    input.on('pointerdown', (pointer: Input.Pointer) => {
+    // Регистрируем интерфейсные клавиши
+    if (input.keyboard) registerUIKeyboardBindings(input.keyboard);
+  }
+
+  update(time: number, delta: number) {
+    super.update(time, delta);
+    const { main: camera } = this.cameras;
+    this.сameraMoveController.handleMovement(delta);
+
+    // Рендерим сетку
+    const { showGrid } = useUIStore.getState();
+    this.gridRenderer.render(camera, showGrid);
+  }
+}
+
+class TileController {
+  private readonly camera: Cameras.Scene2D.Camera;
+  private readonly input: Input.InputPlugin;
+  private readonly gridRenderer: GridRenderer;
+
+  constructor({
+    camera,
+    input,
+    gridRenderer,
+  }: {
+    camera: Cameras.Scene2D.Camera;
+    input: Input.InputPlugin;
+    gridRenderer: GridRenderer;
+  }) {
+    this.camera = camera;
+    this.input = input;
+    this.gridRenderer = gridRenderer;
+
+    // Регистрируем обработчики кликов мыши
+    this.input.on('pointerdown', (pointer: Input.Pointer) => {
       if (pointer.button === 0) {
-        // ЛКМ
+        // ЛКМ - строить тайл
         this.placeTile(pointer);
       } else if (pointer.button === 1) {
         // Средняя кнопка - пипетка
         this.eyedropperTool(pointer);
       }
     });
-
-    // Регистрируем интерфейсные клавиши
-    if (input.keyboard) registerUIKeyboardBindings(input.keyboard);
-
-    this.gridRenderer = new GridRenderer(this);
   }
 
   private placeTile(pointer: Input.Pointer) {
@@ -61,7 +98,7 @@ export class MainScene extends Scene {
     if (!currentLevelId) return;
 
     // Конвертируем позицию клика в координаты тайла
-    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
     const tileX = Math.floor(worldPoint.x / TILE_SIZE);
     const tileY = Math.floor(worldPoint.y / TILE_SIZE);
 
@@ -80,23 +117,13 @@ export class MainScene extends Scene {
     if (!currentLevelId) return;
 
     // Конвертируем позицию клика в координаты тайла
-    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
     const tileX = Math.floor(worldPoint.x / TILE_SIZE);
     const tileY = Math.floor(worldPoint.y / TILE_SIZE);
 
     const tile = getTile(currentLevelId, tileX, tileY);
 
     if (isPrimitiveTile(tile)) useToolbarStore.getState().setActiveTile(tile.type);
-  }
-
-  update(time: number, delta: number) {
-    super.update(time, delta);
-    const { main: camera } = this.cameras;
-    this.сameraMoveController.handleMovement(delta);
-
-    // Рендерим сетку
-    const { showGrid } = useUIStore.getState();
-    this.gridRenderer.render(camera, showGrid);
   }
 }
 
