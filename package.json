@@ -17,6 +17,7 @@
     "qwe": "qwe"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
     "lodash-es": "^4.17.21",
     "nanoid": "^5.1.6",
     "neverthrow": "^8.2.0",
