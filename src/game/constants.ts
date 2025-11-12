@@ -11,6 +11,14 @@ export const TILE_COLORS = {
 
 export const DEFAULT_TILE = { type: 'wall' } satisfies PrimitiveTile;
 
+export const TILE_INDEX = {
+  EMPTY: 0,
+  WALL: 1,
+  FLOOR: 2,
+  UNLINKED_PORTAL: 3,
+  PORTAL: 4,
+} as const;
+
 export const GRID_CONFIG = {
   color: 0x333333,
   alpha: 0.2,

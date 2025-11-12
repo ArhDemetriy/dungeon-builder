@@ -1,34 +1,86 @@
-import type Phaser from 'phaser';
+import type { Cameras, GameObjects, Scene, Tilemaps } from 'phaser';
 
-import { GRID_CONFIG, TILE_COLORS, TILE_SIZE } from '@/game/constants';
+import { GRID_CONFIG, TILE_INDEX, TILE_SIZE } from '@/game/constants';
 import { useLevelStore } from '@/store/levelStore';
 import type { GridTile } from '@/types/level';
+import { parseTileKey } from '@/types/level';
 
 export class GridRenderer {
-  private staticLayer: Phaser.GameObjects.RenderTexture;
-  private staticGraphics: Phaser.GameObjects.Graphics;
-  private dynamicGraphics: Phaser.GameObjects.Graphics;
-  private gridGraphics: Phaser.GameObjects.Graphics;
-  private staticDirty = true;
+  private tilemap: Tilemaps.Tilemap;
+  private tileset: Tilemaps.Tileset;
+  private wallLayer: Tilemaps.TilemapLayer;
+  private floorLayer: Tilemaps.TilemapLayer;
+  private portalLayer: Tilemaps.TilemapLayer;
+  private gridGraphics: GameObjects.Graphics;
 
-  constructor(scene: Phaser.Scene) {
-    // Создаем большую текстуру для статического слоя (wall тайлы)
-    // Размер достаточно большой для видимой области
-    this.staticLayer = scene.add.renderTexture(0, 0, 10000, 10000);
-    this.staticLayer.setOrigin(0.5, 0.5);
+  constructor(scene: Scene) {
 
-    this.staticGraphics = scene.add.graphics();
-    this.dynamicGraphics = scene.add.graphics();
+    // Создаём большую пустую карту
+    this.tilemap = scene.make.tilemap({
+      tileWidth: TILE_SIZE,
+      tileHeight: TILE_SIZE,
+      width: 1000,
+      height: 1000,
+    });
+
+    // Добавляем tileset с параметрами разбивки текстуры
+    // Параметры: name, key, tileWidth, tileHeight, tileMargin, tileSpacing
+    this.tileset = this.tilemap.addTilesetImage('tiles', 'tiles', TILE_SIZE, TILE_SIZE, 0, 0)!;
+
+    // Создаём слои (порядок определяет z-index)
+    this.floorLayer = this.tilemap.createBlankLayer('floors', this.tileset)!;
+    this.wallLayer = this.tilemap.createBlankLayer('walls', this.tileset)!;
+    this.portalLayer = this.tilemap.createBlankLayer('portals', this.tileset)!;
+
+    // Graphics для сетки
     this.gridGraphics = scene.add.graphics();
   }
 
-  markStaticDirty() {
-    this.staticDirty = true;
+  loadLevel(levelId: string) {
+    const { levels } = useLevelStore.getState();
+    const level = levels.get(levelId);
+    if (!level) return;
+
+    // Очищаем все слои
+    this.wallLayer.fill(TILE_INDEX.EMPTY);
+    this.floorLayer.fill(TILE_INDEX.EMPTY);
+    this.portalLayer.fill(TILE_INDEX.EMPTY);
+
+    // Загружаем все тайлы из store
+    level.tiles.forEach((tile, key) => {
+      const { x, y } = parseTileKey(key);
+      this.updateTile(x, y, tile);
+    });
   }
 
-  render(camera: Phaser.Cameras.Scene2D.Camera, showGrid: boolean) {
-    const { currentLevelId, getTile } = useLevelStore.getState();
-    if (!currentLevelId) return;
+  updateTile(x: number, y: number, tile: GridTile) {
+    // Очищаем все слои в этой позиции
+    this.wallLayer.removeTileAt(x, y);
+    this.floorLayer.removeTileAt(x, y);
+    this.portalLayer.removeTileAt(x, y);
+
+    // Размещаем тайл на нужном слое
+    switch (tile.type) {
+      case 'wall':
+        this.wallLayer.putTileAt(TILE_INDEX.WALL, x, y);
+        break;
+      case 'floor':
+        this.floorLayer.putTileAt(TILE_INDEX.FLOOR, x, y);
+        break;
+      case 'unlinked-portal':
+        this.portalLayer.putTileAt(TILE_INDEX.UNLINKED_PORTAL, x, y);
+        break;
+      case 'portal':
+        this.portalLayer.putTileAt(TILE_INDEX.PORTAL, x, y);
+        break;
+    }
+  }
+
+  renderGrid(camera: Cameras.Scene2D.Camera, showGrid: boolean) {
+    if (!showGrid) {
+      this.gridGraphics.clear();
+      return;
+    }
 
     // Получаем границы видимой области камеры
     const { left, right, top, bottom } = camera.worldView;
@@ -37,117 +89,24 @@ export class GridRenderer {
     const startTileY = Math.floor(top / TILE_SIZE) - 1;
     const endTileY = Math.ceil(bottom / TILE_SIZE) + 1;
 
-    // Статический слой (wall) - редко перерисовывается
-    if (this.staticDirty) {
-      this.redrawStaticLayer(currentLevelId, startTileX, endTileX, startTileY, endTileY, getTile);
-      this.staticDirty = false;
-    }
-
-    // Динамический слой (floor, portal, unlinked-portal) - каждый кадр
-    this.redrawDynamicLayer(currentLevelId, startTileX, endTileX, startTileY, endTileY, getTile);
-
-    // Сетка
-    if (showGrid) {
-      this.redrawGrid(startTileX, endTileX, startTileY, endTileY);
-    } else {
-      this.gridGraphics.clear();
-    }
-  }
-
-  private redrawStaticLayer(
-    levelId: string,
-    startX: number,
-    endX: number,
-    startY: number,
-    endY: number,
-    getTile: (id: string, x: number, y: number) => GridTile
-  ) {
-    this.staticLayer.clear();
-    this.staticGraphics.clear();
-
-    for (let y = startY; y <= endY; y++) {
-      for (let x = startX; x <= endX; x++) {
-        const tile = getTile(levelId, x, y);
-        if (tile.type === 'wall') {
-          const worldX = x * TILE_SIZE;
-          const worldY = y * TILE_SIZE;
-
-          this.staticGraphics.fillStyle(TILE_COLORS.wall);
-          this.staticGraphics.fillRect(worldX, worldY, TILE_SIZE, TILE_SIZE);
-        }
-      }
-    }
-
-    // Рисуем Graphics на RenderTexture
-    this.staticLayer.draw(this.staticGraphics);
-  }
-
-  private redrawDynamicLayer(
-    levelId: string,
-    startX: number,
-    endX: number,
-    startY: number,
-    endY: number,
-    getTile: (id: string, x: number, y: number) => GridTile
-  ) {
-    this.dynamicGraphics.clear();
-
-    for (let y = startY; y <= endY; y++) {
-      for (let x = startX; x <= endX; x++) {
-        const tile = getTile(levelId, x, y);
-
-        if (tile.type !== 'wall') {
-          const worldX = x * TILE_SIZE;
-          const worldY = y * TILE_SIZE;
-
-          let color: number;
-
-          switch (tile.type) {
-            case 'floor':
-              color = TILE_COLORS.floor;
-              break;
-            case 'portal':
-              color = TILE_COLORS.portal;
-              break;
-            case 'unlinked-portal':
-              color = TILE_COLORS['unlinked-portal'];
-              break;
-          }
-
-          this.dynamicGraphics.fillStyle(color);
-          this.dynamicGraphics.fillRect(worldX, worldY, TILE_SIZE, TILE_SIZE);
-
-          // Добавляем визуальный индикатор для несвязанного портала
-          if (tile.type === 'unlinked-portal') {
-            this.dynamicGraphics.lineStyle(2, 0xffff00, 0.5);
-            this.dynamicGraphics.strokeRect(worldX + 4, worldY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
-          }
-        }
-      }
-    }
-  }
-
-  private redrawGrid(startX: number, endX: number, startY: number, endY: number) {
     this.gridGraphics.clear();
     this.gridGraphics.lineStyle(1, GRID_CONFIG.color, GRID_CONFIG.alpha);
 
     // Вертикальные линии
-    for (let x = startX; x <= endX; x++) {
+    for (let x = startTileX; x <= endTileX; x++) {
       const worldX = x * TILE_SIZE;
-      this.gridGraphics.lineBetween(worldX, startY * TILE_SIZE, worldX, endY * TILE_SIZE);
+      this.gridGraphics.lineBetween(worldX, startTileY * TILE_SIZE, worldX, endTileY * TILE_SIZE);
     }
 
     // Горизонтальные линии
-    for (let y = startY; y <= endY; y++) {
+    for (let y = startTileY; y <= endTileY; y++) {
       const worldY = y * TILE_SIZE;
-      this.gridGraphics.lineBetween(startX * TILE_SIZE, worldY, endX * TILE_SIZE, worldY);
+      this.gridGraphics.lineBetween(startTileX * TILE_SIZE, worldY, endTileX * TILE_SIZE, worldY);
     }
   }
 
   destroy() {
-    this.staticLayer.destroy();
-    this.staticGraphics.destroy();
-    this.dynamicGraphics.destroy();
+    this.tilemap.destroy();
     this.gridGraphics.destroy();
   }
 }

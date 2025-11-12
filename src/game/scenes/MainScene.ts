@@ -23,7 +23,7 @@ export class MainScene extends Scene {
 
   create() {
     // Инициализируем первый уровень если его нет
-    const { levels, createLevel } = useLevelStore.getState();
+    const { levels, createLevel, currentLevelId } = useLevelStore.getState();
     if (levels.size === 0) {
       createLevel('Уровень 1');
     }
@@ -32,6 +32,11 @@ export class MainScene extends Scene {
     const { input } = this;
 
     this.gridRenderer = new GridRenderer(this);
+
+    // Загружаем текущий уровень
+    if (currentLevelId) {
+      this.gridRenderer.loadLevel(currentLevelId);
+    }
 
     this.сameraMoveController = new CameraMoveController({
       camera,
@@ -57,9 +62,9 @@ export class MainScene extends Scene {
     const { main: camera } = this.cameras;
     this.сameraMoveController.handleMovement(delta);
 
-    // Рендерим сетку
+    // Рендерим сетку (tilemap рендерит себя автоматически)
     const { showGrid } = useUIStore.getState();
-    this.gridRenderer.render(camera, showGrid);
+    this.gridRenderer.renderGrid(camera, showGrid);
   }
 }
 
@@ -94,7 +99,7 @@ class TileController {
   }
 
   private placeTile(pointer: Input.Pointer) {
-    const { currentLevelId, setTile } = useLevelStore.getState();
+    const { currentLevelId, setTile, getTile } = useLevelStore.getState();
     if (!currentLevelId) return;
 
     // Конвертируем позицию клика в координаты тайла
@@ -106,10 +111,9 @@ class TileController {
     const { activeTile } = useToolbarStore.getState();
     setTile(currentLevelId, tileX, tileY, { type: activeTile });
 
-    // Отмечаем что статический слой нужно перерисовать если это wall
-    if (activeTile === 'wall') {
-      this.gridRenderer.markStaticDirty();
-    }
+    // Обновляем визуальное представление тайла
+    const tile = getTile(currentLevelId, tileX, tileY);
+    this.gridRenderer.updateTile(tileX, tileY, tile);
   }
 
   private eyedropperTool(pointer: Input.Pointer) {
