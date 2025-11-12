@@ -6,14 +6,14 @@ import type { GridTile } from '@/types/level';
 import { parseTileKey } from '@/types/level';
 
 export class GridRenderer {
-  private tileMap: Tilemaps.Tilemap;
-  private tileSet: Tilemaps.Tileset;
+  private tilemap: Tilemaps.Tilemap;
+  private tileset: Tilemaps.Tileset;
   private tileLayer: Tilemaps.TilemapLayer;
   private gridGraphics: GameObjects.Graphics;
 
   constructor(scene: Scene) {
     // Создаём большую пустую карту
-    this.tileMap = scene.make.tilemap({
+    this.tilemap = scene.make.tilemap({
       tileWidth: TILE_SIZE,
       tileHeight: TILE_SIZE,
       width: 1000,
@@ -23,7 +23,7 @@ export class GridRenderer {
     // Добавляем tileset с параметрами разбивки текстуры
     // Параметры: name, key, tileWidth, tileHeight, tileMargin, tileSpacing
     // spacing предотвращает texture bleeding (просачивание соседних тайлов)
-    this.tileSet = this.tileMap.addTilesetImage(
+    this.tileset = this.tilemap.addTilesetImage(
       TILE_TEXTURE_KEY,
       TILE_TEXTURE_KEY,
       TILE_SIZE,
@@ -33,7 +33,7 @@ export class GridRenderer {
     )!;
 
     // Создаём единый слой для всех тайлов
-    this.tileLayer = this.tileMap.createBlankLayer('tiles', this.tileSet)!;
+    this.tileLayer = this.tilemap.createBlankLayer('tiles', this.tileset)!;
 
     // Graphics для сетки
     this.gridGraphics = scene.add.graphics();
@@ -90,7 +90,7 @@ export class GridRenderer {
   }
 
   destroy() {
-    this.tileMap.destroy();
+    this.tilemap.destroy();
     this.gridGraphics.destroy();
   }
 }
