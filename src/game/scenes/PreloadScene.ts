@@ -1,6 +1,6 @@
 import { Scene } from 'phaser';
 
-import { TILE_COLORS, TILE_SIZE } from '@/game/constants';
+import { TILE_COLORS, TILE_SIZE, TILE_SPACING, TILE_TEXTURE_KEY } from '@/game/constants';
 
 export class PreloadScene extends Scene {
   constructor() {
@@ -18,8 +18,10 @@ export class PreloadScene extends Scene {
   }
 
   private createTileTexture() {
-    // Создаём Canvas текстуру размером 128x32 (4 тайла по 32px)
-    const texture = this.textures.createCanvas('tiles', TILE_SIZE * 4, TILE_SIZE);
+    // Создаём Canvas текстуру с учётом spacing между тайлами
+    // Размер: (TILE_SIZE + SPACING) * количество_тайлов
+    const textureWidth = (TILE_SIZE + TILE_SPACING) * 4;
+    const texture = this.textures.createCanvas(TILE_TEXTURE_KEY, textureWidth, TILE_SIZE);
     if (!texture) return;
 
     const ctx = texture.getContext();
@@ -28,17 +30,17 @@ export class PreloadScene extends Scene {
     ctx.fillStyle = `#${TILE_COLORS.wall.toString(16).padStart(6, '0')}`;
     ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
 
-    // FLOOR - индекс 1 (позиция x=32)
+    // FLOOR - индекс 1 (позиция x=34 с учётом spacing)
     ctx.fillStyle = `#${TILE_COLORS.floor.toString(16).padStart(6, '0')}`;
-    ctx.fillRect(TILE_SIZE, 0, TILE_SIZE, TILE_SIZE);
+    ctx.fillRect(TILE_SIZE + TILE_SPACING, 0, TILE_SIZE, TILE_SIZE);
 
-    // UNLINKED_PORTAL - индекс 2 (позиция x=64)
-    ctx.fillStyle = `#${TILE_COLORS['unlinked-portal'].toString(16).padStart(6, '0')}`;
-    ctx.fillRect(TILE_SIZE * 2, 0, TILE_SIZE, TILE_SIZE);
+    // UNLINKED_PORTAL - индекс 2 (позиция x=68)
+    ctx.fillStyle = `#${TILE_COLORS.unlinkedPortal.toString(16).padStart(6, '0')}`;
+    ctx.fillRect((TILE_SIZE + TILE_SPACING) * 2, 0, TILE_SIZE, TILE_SIZE);
 
-    // PORTAL - индекс 3 (позиция x=96)
+    // PORTAL - индекс 3 (позиция x=102)
     ctx.fillStyle = `#${TILE_COLORS.portal.toString(16).padStart(6, '0')}`;
-    ctx.fillRect(TILE_SIZE * 3, 0, TILE_SIZE, TILE_SIZE);
+    ctx.fillRect((TILE_SIZE + TILE_SPACING) * 3, 0, TILE_SIZE, TILE_SIZE);
 
     texture.refresh();
   }

@@ -13,7 +13,7 @@ export class MainScene extends Scene {
   private gridRenderer!: GridRenderer;
   // @ts-expect-error - контроллер не используется напрямую, но необходим для управления зумом
   private zoomController!: CameraZoomController;
-  private сameraMoveController!: CameraMoveController;
+  private cameraMoveController!: CameraMoveController;
   // @ts-expect-error - контроллер не используется напрямую, но необходим для управления тайлами
   private tileController!: TileController;
 
@@ -23,22 +23,17 @@ export class MainScene extends Scene {
 
   create() {
     // Инициализируем первый уровень если его нет
-    const { levels, createLevel, currentLevelId } = useLevelStore.getState();
-    if (levels.size === 0) {
-      createLevel('Уровень 1');
-    }
+    const { levels, createLevel } = useLevelStore.getState();
+    if (!levels.size) createLevel('Уровень 1');
+
+    this.gridRenderer = new GridRenderer(this);
+    const { currentLevelId } = useLevelStore.getState();
+    if (currentLevelId) this.gridRenderer.loadLevel(currentLevelId);
 
     const { main: camera } = this.cameras;
     const { input } = this;
 
-    this.gridRenderer = new GridRenderer(this);
-
-    // Загружаем текущий уровень
-    if (currentLevelId) {
-      this.gridRenderer.loadLevel(currentLevelId);
-    }
-
-    this.сameraMoveController = new CameraMoveController({
+    this.cameraMoveController = new CameraMoveController({
       camera,
       input,
     });
@@ -60,7 +55,7 @@ export class MainScene extends Scene {
   update(time: number, delta: number) {
     super.update(time, delta);
     const { main: camera } = this.cameras;
-    this.сameraMoveController.handleMovement(delta);
+    this.cameraMoveController.handleMovement(delta);
 
     // Рендерим сетку (tilemap рендерит себя автоматически)
     const { showGrid } = useUIStore.getState();
@@ -161,10 +156,10 @@ class CameraMoveController {
       const y = (up?.isDown ? -1 : 0) + (down?.isDown ? 1 : 0);
       const moved = x || y;
       if (moved) {
-        const isDiagonale = x && y;
+        const isDiagonal = x && y;
         const cosPI4 = 0.7071067811865476;
         const move = Math.round(
-          delta * CAMERA_CONFIG.moveSpeed * (isDiagonale ? cosPI4 : 1) * (CAMERA_CONFIG.maxZoom / this.camera.zoom)
+          delta * CAMERA_CONFIG.moveSpeed * (isDiagonal ? cosPI4 : 1) * (CAMERA_CONFIG.maxZoom / this.camera.zoom)
         );
         if (x) this.camera.scrollX += x * move;
         if (y) this.camera.scrollY += y * move;
@@ -234,7 +229,7 @@ function registerUIKeyboardBindings(keyboard: Input.Keyboard.KeyboardPlugin) {
     useToolbarStore.getState().setActiveTile('floor');
   });
   keyboard.on('keydown-THREE', () => {
-    useToolbarStore.getState().setActiveTile('unlinked-portal');
+    useToolbarStore.getState().setActiveTile('unlinkedPortal');
   });
 
   // G - toggle сетки

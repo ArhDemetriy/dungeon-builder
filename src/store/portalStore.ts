@@ -79,7 +79,7 @@ export const usePortalStore = create<{
           const tile1 = getTile(point1.levelId, point1.position.x, point1.position.y);
           const tile2 = getTile(point2.levelId, point2.position.x, point2.position.y);
 
-          if (tile1.type === 'unlinked-portal' && tile2.type === 'unlinked-portal') {
+          if (tile1.type === 'unlinkedPortal' && tile2.type === 'unlinkedPortal') {
             set(state => ({
               portals: new Map(state.portals).set(portalId, portal),
             }));
@@ -109,7 +109,7 @@ export const usePortalStore = create<{
 
           levels.forEach((level, levelId) =>
             level.tiles.forEach((tile, key) => {
-              if (tile.type !== 'unlinked-portal') return;
+              if (tile.type !== 'unlinkedPortal') return;
               const { 0: x, 1: y } = key.split(',').map(Number);
               unlinkedPortals.push({
                 levelId,

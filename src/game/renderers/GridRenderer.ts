@@ -1,22 +1,19 @@
 import type { Cameras, GameObjects, Scene, Tilemaps } from 'phaser';
 
-import { GRID_CONFIG, TILE_INDEX, TILE_SIZE } from '@/game/constants';
+import { GRID_CONFIG, TILE_INDEX, TILE_SIZE, TILE_SPACING, TILE_TEXTURE_KEY } from '@/game/constants';
 import { useLevelStore } from '@/store/levelStore';
 import type { GridTile } from '@/types/level';
 import { parseTileKey } from '@/types/level';
 
 export class GridRenderer {
-  private tilemap: Tilemaps.Tilemap;
-  private tileset: Tilemaps.Tileset;
-  private wallLayer: Tilemaps.TilemapLayer;
-  private floorLayer: Tilemaps.TilemapLayer;
-  private portalLayer: Tilemaps.TilemapLayer;
+  private tileMap: Tilemaps.Tilemap;
+  private tileSet: Tilemaps.Tileset;
+  private tileLayer: Tilemaps.TilemapLayer;
   private gridGraphics: GameObjects.Graphics;
 
   constructor(scene: Scene) {
-
     // Создаём большую пустую карту
-    this.tilemap = scene.make.tilemap({
+    this.tileMap = scene.make.tilemap({
       tileWidth: TILE_SIZE,
       tileHeight: TILE_SIZE,
       width: 1000,
@@ -25,12 +22,18 @@ export class GridRenderer {
 
     // Добавляем tileset с параметрами разбивки текстуры
     // Параметры: name, key, tileWidth, tileHeight, tileMargin, tileSpacing
-    this.tileset = this.tilemap.addTilesetImage('tiles', 'tiles', TILE_SIZE, TILE_SIZE, 0, 0)!;
+    // spacing предотвращает texture bleeding (просачивание соседних тайлов)
+    this.tileSet = this.tileMap.addTilesetImage(
+      TILE_TEXTURE_KEY,
+      TILE_TEXTURE_KEY,
+      TILE_SIZE,
+      TILE_SIZE,
+      0,
+      TILE_SPACING
+    )!;
 
-    // Создаём слои (порядок определяет z-index)
-    this.floorLayer = this.tilemap.createBlankLayer('floors', this.tileset)!;
-    this.wallLayer = this.tilemap.createBlankLayer('walls', this.tileset)!;
-    this.portalLayer = this.tilemap.createBlankLayer('portals', this.tileset)!;
+    // Создаём единый слой для всех тайлов
+    this.tileLayer = this.tileMap.createBlankLayer('tiles', this.tileSet)!;
 
     // Graphics для сетки
     this.gridGraphics = scene.add.graphics();
@@ -41,10 +44,8 @@ export class GridRenderer {
     const level = levels.get(levelId);
     if (!level) return;
 
-    // Очищаем все слои
-    this.wallLayer.fill(TILE_INDEX.EMPTY);
-    this.floorLayer.fill(TILE_INDEX.EMPTY);
-    this.portalLayer.fill(TILE_INDEX.EMPTY);
+    // Очищаем слой
+    this.tileLayer.fill(TILE_INDEX.empty);
 
     // Загружаем все тайлы из store
     level.tiles.forEach((tile, key) => {
@@ -53,27 +54,10 @@ export class GridRenderer {
     });
   }
 
-  updateTile(x: number, y: number, tile: GridTile) {
-    // Очищаем все слои в этой позиции
-    this.wallLayer.removeTileAt(x, y);
-    this.floorLayer.removeTileAt(x, y);
-    this.portalLayer.removeTileAt(x, y);
-
-    // Размещаем тайл на нужном слое
-    switch (tile.type) {
-      case 'wall':
-        this.wallLayer.putTileAt(TILE_INDEX.WALL, x, y);
-        break;
-      case 'floor':
-        this.floorLayer.putTileAt(TILE_INDEX.FLOOR, x, y);
-        break;
-      case 'unlinked-portal':
-        this.portalLayer.putTileAt(TILE_INDEX.UNLINKED_PORTAL, x, y);
-        break;
-      case 'portal':
-        this.portalLayer.putTileAt(TILE_INDEX.PORTAL, x, y);
-        break;
-    }
+  updateTile(x: number, y: number, { type }: GridTile) {
+    const tileIndex = TILE_INDEX[type];
+    if (tileIndex === undefined) return;
+    this.tileLayer.putTileAt(tileIndex, x, y);
   }
 
   renderGrid(camera: Cameras.Scene2D.Camera, showGrid: boolean) {
@@ -106,7 +90,7 @@ export class GridRenderer {
   }
 
   destroy() {
-    this.tilemap.destroy();
+    this.tileMap.destroy();
     this.gridGraphics.destroy();
   }
 }

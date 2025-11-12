@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+
 import { useToolbarStore } from '@/store/toolbarStore';
 import { useUIStore } from '@/store/uiStore';
 
@@ -11,10 +12,8 @@ export function Toolbar() {
       {/* Радиокнопка Wall */}
       <label
         className={clsx(
-          'flex cursor-pointer flex-col items-center gap-1 rounded px-4 py-2 transition-colors border-2',
-          activeTile === 'wall'
-            ? 'border-white bg-gray-700'
-            : 'border-transparent bg-gray-800 hover:bg-gray-700'
+          'flex cursor-pointer flex-col items-center gap-1 rounded border-2 px-4 py-2 transition-colors',
+          activeTile === 'wall' ? 'border-white bg-gray-700' : 'border-transparent bg-gray-800 hover:bg-gray-700'
         )}
         title="Wall (1)"
       >
@@ -33,10 +32,8 @@ export function Toolbar() {
       {/* Радиокнопка Floor */}
       <label
         className={clsx(
-          'flex cursor-pointer flex-col items-center gap-1 rounded px-4 py-2 transition-colors border-2',
-          activeTile === 'floor'
-            ? 'border-white bg-gray-700'
-            : 'border-transparent bg-gray-800 hover:bg-gray-700'
+          'flex cursor-pointer flex-col items-center gap-1 rounded border-2 px-4 py-2 transition-colors',
+          activeTile === 'floor' ? 'border-white bg-gray-700' : 'border-transparent bg-gray-800 hover:bg-gray-700'
         )}
         title="Floor (2)"
       >
@@ -55,8 +52,8 @@ export function Toolbar() {
       {/* Радиокнопка Portal */}
       <label
         className={clsx(
-          'flex cursor-pointer flex-col items-center gap-1 rounded px-4 py-2 transition-colors border-2',
-          activeTile === 'unlinked-portal'
+          'flex cursor-pointer flex-col items-center gap-1 rounded border-2 px-4 py-2 transition-colors',
+          activeTile === 'unlinkedPortal'
             ? 'border-white bg-gray-700'
             : 'border-transparent bg-gray-800 hover:bg-gray-700'
         )}
@@ -66,8 +63,8 @@ export function Toolbar() {
           type="radio"
           name="tile-type"
           value="unlinked-portal"
-          checked={activeTile === 'unlinked-portal'}
-          onChange={() => setActiveTile('unlinked-portal')}
+          checked={activeTile === 'unlinkedPortal'}
+          onChange={() => setActiveTile('unlinkedPortal')}
           className="sr-only"
         />
         <div className="h-6 w-6 border border-yellow-500 bg-gray-600" />
@@ -80,19 +77,12 @@ export function Toolbar() {
       {/* Toggle сетки */}
       <label
         className={clsx(
-          'cursor-pointer rounded px-4 py-2 transition-all border-2',
-          showGrid
-            ? 'border-blue-400 bg-blue-600 shadow-inner'
-            : 'border-transparent bg-gray-800 hover:bg-gray-700'
+          'cursor-pointer rounded border-2 px-4 py-2 transition-all',
+          showGrid ? 'border-blue-400 bg-blue-600 shadow-inner' : 'border-transparent bg-gray-800 hover:bg-gray-700'
         )}
         title="Toggle Grid (G)"
       >
-        <input
-          type="checkbox"
-          checked={showGrid}
-          onChange={toggleGrid}
-          className="sr-only"
-        />
+        <input type="checkbox" checked={showGrid} onChange={toggleGrid} className="sr-only" />
         <svg className="h-6 w-6 text-white" fill="currentColor" viewBox="0 0 24 24">
           <path d="M3 3v8h8V3H3zm0 10v8h8v-8H3zm10-10v8h8V3h-8zm0 10v8h8v-8h-8z" />
         </svg>
