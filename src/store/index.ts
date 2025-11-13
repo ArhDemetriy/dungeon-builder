@@ -1,10 +1,7 @@
 import { createPinia } from 'pinia';
 import { createPersistedState } from 'pinia-plugin-persistedstate';
 
-// Создаём Pinia instance
 export const pinia = createPinia();
-
-// Настраиваем persist плагин
 pinia.use(
   createPersistedState({
     storage: localStorage,

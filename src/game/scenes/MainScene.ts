@@ -1,7 +1,7 @@
 import { debounce } from 'lodash-es';
 import { type Cameras, Input, Scene } from 'phaser';
 
-import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_SIZE } from '@/game/constants';
+import { CAMERA_CONFIG, DEFAULT_TILE, MOVEMENT_CONFIG, TILE_SIZE } from '@/game/constants';
 import { GridRenderer } from '@/game/renderers/GridRenderer';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
 import { useLevelStore } from '@/store/levelStore';
@@ -53,10 +53,9 @@ export class MainScene extends Scene {
 
   update(time: number, delta: number) {
     super.update(time, delta);
-    const { main: camera } = this.cameras;
     this.cameraMoveController.handleMovement(delta);
 
-    // Рендерим сетку (tilemap рендерит себя автоматически)
+    const { main: camera } = this.cameras;
     const uiStore = useUIStore();
     this.gridRenderer.renderGrid(camera, uiStore.showGrid);
   }
@@ -103,11 +102,12 @@ class TileController {
 
     // Размещаем тайл
     const toolbarStore = useToolbarStore();
-    levelStore.setTile(levelStore.currentLevelId, tileX, tileY, { type: toolbarStore.activeTile });
+    const succsess = levelStore.setTile(levelStore.currentLevelId, tileX, tileY, { type: toolbarStore.activeTile });
+    if (!succsess) return;
 
     // Обновляем визуальное представление тайла
     const tile = levelStore.getTile(levelStore.currentLevelId, tileX, tileY);
-    this.gridRenderer.updateTile(tileX, tileY, tile);
+    if (tile) this.gridRenderer.updateTile(tileX, tileY, tile);
   }
 
   private eyedropperTool(pointer: Input.Pointer) {
@@ -120,11 +120,9 @@ class TileController {
     const tileY = Math.floor(worldPoint.y / TILE_SIZE);
 
     const tile = levelStore.getTile(levelStore.currentLevelId, tileX, tileY);
+    if (!tile || !isPrimitiveTile(tile)) return;
 
-    if (isPrimitiveTile(tile)) {
-      const toolbarStore = useToolbarStore();
-      toolbarStore.setActiveTile(tile.type);
-    }
+    useToolbarStore().setActiveTile(tile.type);
   }
 }
 
@@ -137,8 +135,8 @@ class CameraMoveController {
     this.input = input;
     this.camera = camera;
 
-    const cameraPositionStore = useCameraPositionStore();
-    this.camera.setScroll(cameraPositionStore.position.x, cameraPositionStore.position.y);
+    const { position } = useCameraPositionStore();
+    this.camera.setScroll(position.x, position.y);
 
     this.cursorKeys =
       MOVEMENT_CONFIG.moveInput === 'cursor'
@@ -170,10 +168,10 @@ class CameraMoveController {
     }
   }
 
-  static readonly debouncedSavePosition = debounce((x: number, y: number) => {
-    const cameraPositionStore = useCameraPositionStore();
-    cameraPositionStore.setPosition(x, y);
-  }, 500);
+  static readonly debouncedSavePosition = debounce(
+    (x: number, y: number) => useCameraPositionStore().setPosition(x, y),
+    500
+  );
 }
 
 class CameraZoomController {
@@ -193,9 +191,7 @@ class CameraZoomController {
     this.saveCameraPosition = saveCameraPosition;
     this.input = input;
 
-    const cameraZoomStore = useCameraZoomStore();
-    this.camera.setZoom(cameraZoomStore.zoom);
-
+    this.camera.setZoom(useCameraZoomStore().zoom);
     this.input.on('wheel', (pointer: Input.Pointer, _gameObjects: unknown, deltaX: number, deltaY: number) =>
       this.handleWheel(pointer, deltaY || deltaX)
     );
@@ -213,10 +209,7 @@ class CameraZoomController {
     this.saveCameraPosition(this.camera.scrollX, this.camera.scrollY);
   }
 
-  private static readonly debouncedSaveZoom = debounce((zoom: number) => {
-    const cameraZoomStore = useCameraZoomStore();
-    cameraZoomStore.setZoom(zoom);
-  }, 200);
+  private static readonly debouncedSaveZoom = debounce((zoom: number) => useCameraZoomStore().setZoom(zoom), 200);
 }
 
 /**
