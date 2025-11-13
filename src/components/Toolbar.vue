@@ -106,4 +106,3 @@ const uiStore = useUIStore();
     </label>
   </div>
 </template>
-

@@ -9,7 +9,7 @@ pinia.use(
   createPersistedState({
     storage: localStorage,
     serializer: {
-      serialize: (value) => {
+      serialize: value => {
         // Кастомный сериализатор для Map и Set
         return JSON.stringify(value, (_key, val) => {
           if (val instanceof Map) {
@@ -27,7 +27,7 @@ pinia.use(
           return val;
         });
       },
-      deserialize: (value) => {
+      deserialize: value => {
         // Кастомный десериализатор для Map и Set
         return JSON.parse(value, (_key, val) => {
           if (typeof val === 'object' && val !== null && '__type' in val) {
@@ -44,4 +44,3 @@ pinia.use(
     },
   })
 );
-

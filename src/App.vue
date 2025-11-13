@@ -7,4 +7,3 @@ import Toolbar from '@/components/Toolbar.vue';
     <Toolbar />
   </div>
 </template>
-
