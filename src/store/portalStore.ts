@@ -1,155 +1,123 @@
 import { nanoid } from 'nanoid';
-import { create } from 'zustand';
-import { createJSONStorage, devtools, persist } from 'zustand/middleware';
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
 
 import { useLevelStore } from '@/store/levelStore';
 import { useSaveStore } from '@/store/saveStore';
 import type { Portal } from '@/types/level';
 
-export const usePortalStore = create<{
-  portals: Map<string, Portal>;
+export const usePortalStore = defineStore(
+  'portal',
+  () => {
+    // State
+    const portals = ref(new Map<string, Portal>());
 
-  createPortalPair: (
-    from: { levelId: string; position: { x: number; y: number } },
-    to: { levelId: string; position: { x: number; y: number } },
-    name: string
-  ) => string;
-
-  linkPortals: (
-    point1: { levelId: string; position: { x: number; y: number } },
-    point2: { levelId: string; position: { x: number; y: number } },
-    name: string
-  ) => string;
-
-  getUnlinkedPortals: () => Array<{
-    levelId: string;
-    position: { x: number; y: number };
-  }>;
-}>()(
-  devtools(
-    persist(
-      (set, _get) => ({
-        portals: new Map(),
-
-        createPortalPair: (from, to, name) => {
-          const portalId = nanoid();
-          const portal: Portal = {
-            id: portalId,
-            name,
-            endpoints: {
-              A: { levelId: from.levelId, position: from.position },
-              B: { levelId: to.levelId, position: to.position },
-            },
-            createdAt: Date.now(),
-          };
-
-          set(state => ({
-            portals: new Map(state.portals).set(portalId, portal),
-          }));
-
-          // Обновляем тайлы в уровнях
-          const { setTile } = useLevelStore.getState();
-          setTile(from.levelId, from.position.x, from.position.y, {
-            type: 'portal',
-            portalId,
-          });
-          setTile(to.levelId, to.position.x, to.position.y, {
-            type: 'portal',
-            portalId,
-          });
-
-          useSaveStore.getState().markDirty();
-          return portalId;
+    // Actions
+    function createPortalPair(
+      from: { levelId: string; position: { x: number; y: number } },
+      to: { levelId: string; position: { x: number; y: number } },
+      name: string
+    ) {
+      const portalId = nanoid();
+      const portal: Portal = {
+        id: portalId,
+        name,
+        endpoints: {
+          A: { levelId: from.levelId, position: from.position },
+          B: { levelId: to.levelId, position: to.position },
         },
+        createdAt: Date.now(),
+      };
 
-        linkPortals: (point1, point2, name) => {
-          const portalId = nanoid();
-          const portal: Portal = {
-            id: portalId,
-            name,
-            endpoints: {
-              A: { levelId: point1.levelId, position: point1.position },
-              B: { levelId: point2.levelId, position: point2.position },
-            },
-            createdAt: Date.now(),
-          };
+      portals.value.set(portalId, portal);
 
-          // Проверяем что оба тайла - несвязанные порталы
-          const { getTile, setTile } = useLevelStore.getState();
-          const tile1 = getTile(point1.levelId, point1.position.x, point1.position.y);
-          const tile2 = getTile(point2.levelId, point2.position.x, point2.position.y);
+      // Обновляем тайлы в уровнях
+      const levelStore = useLevelStore();
+      levelStore.setTile(from.levelId, from.position.x, from.position.y, {
+        type: 'portal',
+        portalId,
+      });
+      levelStore.setTile(to.levelId, to.position.x, to.position.y, {
+        type: 'portal',
+        portalId,
+      });
 
-          if (tile1.type === 'unlinkedPortal' && tile2.type === 'unlinkedPortal') {
-            set(state => ({
-              portals: new Map(state.portals).set(portalId, portal),
-            }));
+      useSaveStore().markDirty();
+      return portalId;
+    }
 
-            // Заменяем на связанные порталы
-            setTile(point1.levelId, point1.position.x, point1.position.y, {
-              type: 'portal',
-              portalId,
-            });
-            setTile(point2.levelId, point2.position.x, point2.position.y, {
-              type: 'portal',
-              portalId,
-            });
-
-            useSaveStore.getState().markDirty();
-          }
-
-          return portalId;
+    function linkPortals(
+      point1: { levelId: string; position: { x: number; y: number } },
+      point2: { levelId: string; position: { x: number; y: number } },
+      name: string
+    ) {
+      const portalId = nanoid();
+      const portal: Portal = {
+        id: portalId,
+        name,
+        endpoints: {
+          A: { levelId: point1.levelId, position: point1.position },
+          B: { levelId: point2.levelId, position: point2.position },
         },
+        createdAt: Date.now(),
+      };
 
-        getUnlinkedPortals: () => {
-          const { levels } = useLevelStore.getState();
-          const unlinkedPortals: Array<{
-            levelId: string;
-            position: { x: number; y: number };
-          }> = [];
+      // Проверяем что оба тайла - несвязанные порталы
+      const levelStore = useLevelStore();
+      const tile1 = levelStore.getTile(point1.levelId, point1.position.x, point1.position.y);
+      const tile2 = levelStore.getTile(point2.levelId, point2.position.x, point2.position.y);
 
-          levels.forEach((level, levelId) =>
-            level.tiles.forEach((tile, key) => {
-              if (tile.type !== 'unlinkedPortal') return;
-              const { 0: x, 1: y } = key.split(',').map(Number);
-              unlinkedPortals.push({
-                levelId,
-                position: { x, y },
-              });
-            })
-          );
+      if (tile1.type === 'unlinkedPortal' && tile2.type === 'unlinkedPortal') {
+        portals.value.set(portalId, portal);
 
-          return unlinkedPortals;
-        },
-      }),
-      {
-        name: 'portal-store',
-        storage: createJSONStorage(() => localStorage, {
-          replacer: (_key, value) => {
-            // Сериализуем Map в массивы для JSON
-            if (value instanceof Map) {
-              return {
-                __type: 'Map',
-                value: Array.from(value.entries()),
-              };
-            }
-            return value;
-          },
-          reviver: (_key, value) => {
-            // Восстанавливаем Map из массивов
-            if (
-              typeof value === 'object' &&
-              value !== null &&
-              '__type' in value &&
-              value.__type === 'Map' &&
-              'value' in value
-            ) {
-              return new Map(value.value as [unknown, unknown][]);
-            }
-            return value;
-          },
-        }),
+        // Заменяем на связанные порталы
+        levelStore.setTile(point1.levelId, point1.position.x, point1.position.y, {
+          type: 'portal',
+          portalId,
+        });
+        levelStore.setTile(point2.levelId, point2.position.x, point2.position.y, {
+          type: 'portal',
+          portalId,
+        });
+
+        useSaveStore().markDirty();
       }
-    ),
-    { name: 'PortalStore' }
-  )
+
+      return portalId;
+    }
+
+    function getUnlinkedPortals() {
+      const levelStore = useLevelStore();
+      const unlinkedPortals: Array<{
+        levelId: string;
+        position: { x: number; y: number };
+      }> = [];
+
+      levelStore.levels.forEach((level, levelId) =>
+        level.tiles.forEach((tile, key) => {
+          if (tile.type !== 'unlinkedPortal') return;
+          const { 0: x, 1: y } = key.split(',').map(Number);
+          unlinkedPortals.push({
+            levelId,
+            position: { x, y },
+          });
+        })
+      );
+
+      return unlinkedPortals;
+    }
+
+    return {
+      portals,
+      createPortalPair,
+      linkPortals,
+      getUnlinkedPortals,
+    };
+  },
+  {
+    persist: {
+      key: 'portal-store',
+      // Сериализация Map уже настроена в глобальном persist плагине
+    },
+  }
 );

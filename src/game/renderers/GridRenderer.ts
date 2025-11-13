@@ -40,8 +40,8 @@ export class GridRenderer {
   }
 
   loadLevel(levelId: string) {
-    const { levels } = useLevelStore.getState();
-    const level = levels.get(levelId);
+    const levelStore = useLevelStore();
+    const level = levelStore.levels.get(levelId);
     if (!level) return;
 
     // Очищаем слой

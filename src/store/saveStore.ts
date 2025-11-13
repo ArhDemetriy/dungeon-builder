@@ -1,19 +1,24 @@
-import { create } from 'zustand';
-import { devtools } from 'zustand/middleware';
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
 
-interface SaveStore {
-  isDirty: boolean;
-  markDirty: () => void;
-  clearDirty: () => void;
-}
+export const useSaveStore = defineStore('save', () => {
+  // State
+  const isDirty = ref(false);
 
-export const useSaveStore = create<SaveStore>()(
-  devtools(
-    (set, get) => ({
-      isDirty: false,
-      markDirty: () => !get().isDirty && set({ isDirty: true }),
-      clearDirty: () => set({ isDirty: false }),
-    }),
-    { name: 'SaveStore' }
-  )
-);
+  // Actions
+  function markDirty() {
+    if (!isDirty.value) {
+      isDirty.value = true;
+    }
+  }
+
+  function clearDirty() {
+    isDirty.value = false;
+  }
+
+  return {
+    isDirty,
+    markDirty,
+    clearDirty,
+  };
+});

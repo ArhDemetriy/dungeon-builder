@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
+import vue from 'eslint-plugin-vue';
 // import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import { defineConfig, globalIgnores } from 'eslint/config';
@@ -8,6 +9,7 @@ import tseslint from 'typescript-eslint';
 
 export default defineConfig([
   globalIgnores(['dist']),
+  // Конфигурация для TypeScript файлов (React)
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -53,6 +55,27 @@ export default defineConfig([
         {
           prefer: 'type-imports',
           fixStyle: 'inline-type-imports',
+        },
+      ],
+    },
+  },
+  // Конфигурация для Vue файлов
+  ...vue.configs['flat/recommended'],
+  {
+    files: ['**/*.vue'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+    },
+    rules: {
+      // Отключаем правило multi-word для компонентов (можем использовать App, Toolbar)
+      'vue/multi-word-component-names': 'off',
+      // Настраиваем правила Vue для Composition API
+      'vue/component-api-style': ['warn', ['script-setup']],
+      'vue/block-lang': [
+        'error',
+        {
+          script: { lang: 'ts' },
         },
       ],
     },
