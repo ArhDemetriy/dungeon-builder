@@ -1,42 +1,44 @@
-import { create } from 'zustand';
-import { devtools, persist } from 'zustand/middleware';
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
 
-interface CameraZoomStore {
-  zoom: number;
-  setZoom: (zoom: number) => void;
-}
+export const useCameraZoomStore = defineStore(
+  'camera-zoom',
+  () => {
+    // State
+    const zoom = ref(1);
 
-interface CameraPositionStore {
-  position: { x: number; y: number };
-  setPosition: (x: number, y: number) => void;
-}
+    // Actions
+    function setZoom(newZoom: number) {
+      zoom.value = newZoom;
+    }
 
-export const useCameraZoomStore = create<CameraZoomStore>()(
-  devtools(
-    persist(
-      set => ({
-        zoom: 1,
-        setZoom: zoom => set({ zoom }),
-      }),
-      {
-        name: 'camera-zoom',
-      }
-    ),
-    { name: 'CameraZoomStore' }
-  )
+    return {
+      zoom,
+      setZoom,
+    };
+  },
+  {
+    persist: true,
+  }
 );
 
-export const useCameraPositionStore = create<CameraPositionStore>()(
-  devtools(
-    persist(
-      set => ({
-        position: { x: 0, y: 0 },
-        setPosition: (x, y) => set({ position: { x, y } }),
-      }),
-      {
-        name: 'camera-position',
-      }
-    ),
-    { name: 'CameraPositionStore' }
-  )
+export const useCameraPositionStore = defineStore(
+  'camera-position',
+  () => {
+    // State
+    const position = ref({ x: 0, y: 0 });
+
+    // Actions
+    function setPosition(x: number, y: number) {
+      position.value = { x, y };
+    }
+
+    return {
+      position,
+      setPosition,
+    };
+  },
+  {
+    persist: true,
+  }
 );

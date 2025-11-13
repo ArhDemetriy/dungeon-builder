@@ -23,12 +23,11 @@ export class MainScene extends Scene {
 
   create() {
     // Инициализируем первый уровень если его нет
-    const { levels, createLevel } = useLevelStore.getState();
-    if (!levels.size) createLevel('Уровень 1');
+    const levelStore = useLevelStore();
+    if (!levelStore.levels.size) levelStore.createLevel('Уровень 1');
 
     this.gridRenderer = new GridRenderer(this);
-    const { currentLevelId } = useLevelStore.getState();
-    if (currentLevelId) this.gridRenderer.loadLevel(currentLevelId);
+    if (levelStore.currentLevelId) this.gridRenderer.loadLevel(levelStore.currentLevelId);
 
     const { main: camera } = this.cameras;
     const { input } = this;
@@ -58,8 +57,8 @@ export class MainScene extends Scene {
     this.cameraMoveController.handleMovement(delta);
 
     // Рендерим сетку (tilemap рендерит себя автоматически)
-    const { showGrid } = useUIStore.getState();
-    this.gridRenderer.renderGrid(camera, showGrid);
+    const uiStore = useUIStore();
+    this.gridRenderer.renderGrid(camera, uiStore.showGrid);
   }
 }
 
@@ -94,8 +93,8 @@ class TileController {
   }
 
   private placeTile(pointer: Input.Pointer) {
-    const { currentLevelId, setTile, getTile } = useLevelStore.getState();
-    if (!currentLevelId) return;
+    const levelStore = useLevelStore();
+    if (!levelStore.currentLevelId) return;
 
     // Конвертируем позицию клика в координаты тайла
     const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
@@ -103,26 +102,29 @@ class TileController {
     const tileY = Math.floor(worldPoint.y / TILE_SIZE);
 
     // Размещаем тайл
-    const { activeTile } = useToolbarStore.getState();
-    setTile(currentLevelId, tileX, tileY, { type: activeTile });
+    const toolbarStore = useToolbarStore();
+    levelStore.setTile(levelStore.currentLevelId, tileX, tileY, { type: toolbarStore.activeTile });
 
     // Обновляем визуальное представление тайла
-    const tile = getTile(currentLevelId, tileX, tileY);
+    const tile = levelStore.getTile(levelStore.currentLevelId, tileX, tileY);
     this.gridRenderer.updateTile(tileX, tileY, tile);
   }
 
   private eyedropperTool(pointer: Input.Pointer) {
-    const { currentLevelId, getTile } = useLevelStore.getState();
-    if (!currentLevelId) return;
+    const levelStore = useLevelStore();
+    if (!levelStore.currentLevelId) return;
 
     // Конвертируем позицию клика в координаты тайла
     const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
     const tileX = Math.floor(worldPoint.x / TILE_SIZE);
     const tileY = Math.floor(worldPoint.y / TILE_SIZE);
 
-    const tile = getTile(currentLevelId, tileX, tileY);
+    const tile = levelStore.getTile(levelStore.currentLevelId, tileX, tileY);
 
-    if (isPrimitiveTile(tile)) useToolbarStore.getState().setActiveTile(tile.type);
+    if (isPrimitiveTile(tile)) {
+      const toolbarStore = useToolbarStore();
+      toolbarStore.setActiveTile(tile.type);
+    }
   }
 }
 
@@ -135,8 +137,8 @@ class CameraMoveController {
     this.input = input;
     this.camera = camera;
 
-    const { position } = useCameraPositionStore.getState();
-    this.camera.setScroll(position.x, position.y);
+    const cameraPositionStore = useCameraPositionStore();
+    this.camera.setScroll(cameraPositionStore.position.x, cameraPositionStore.position.y);
 
     this.cursorKeys =
       MOVEMENT_CONFIG.moveInput === 'cursor'
@@ -168,10 +170,10 @@ class CameraMoveController {
     }
   }
 
-  static readonly debouncedSavePosition = debounce(
-    (x: number, y: number) => useCameraPositionStore.getState().setPosition(x, y),
-    500
-  );
+  static readonly debouncedSavePosition = debounce((x: number, y: number) => {
+    const cameraPositionStore = useCameraPositionStore();
+    cameraPositionStore.setPosition(x, y);
+  }, 500);
 }
 
 class CameraZoomController {
@@ -191,8 +193,8 @@ class CameraZoomController {
     this.saveCameraPosition = saveCameraPosition;
     this.input = input;
 
-    const { zoom } = useCameraZoomStore.getState();
-    this.camera.setZoom(zoom);
+    const cameraZoomStore = useCameraZoomStore();
+    this.camera.setZoom(cameraZoomStore.zoom);
 
     this.input.on('wheel', (pointer: Input.Pointer, _gameObjects: unknown, deltaX: number, deltaY: number) =>
       this.handleWheel(pointer, deltaY || deltaX)
@@ -211,10 +213,10 @@ class CameraZoomController {
     this.saveCameraPosition(this.camera.scrollX, this.camera.scrollY);
   }
 
-  private static readonly debouncedSaveZoom = debounce(
-    (zoom: number) => useCameraZoomStore.getState().setZoom(zoom),
-    200
-  );
+  private static readonly debouncedSaveZoom = debounce((zoom: number) => {
+    const cameraZoomStore = useCameraZoomStore();
+    cameraZoomStore.setZoom(zoom);
+  }, 200);
 }
 
 /**
@@ -223,17 +225,21 @@ class CameraZoomController {
 function registerUIKeyboardBindings(keyboard: Input.Keyboard.KeyboardPlugin) {
   // Клавиши 1/2/3 - выбор тайла
   keyboard.on('keydown-ONE', () => {
-    useToolbarStore.getState().setActiveTile('wall');
+    const toolbarStore = useToolbarStore();
+    toolbarStore.setActiveTile('wall');
   });
   keyboard.on('keydown-TWO', () => {
-    useToolbarStore.getState().setActiveTile('floor');
+    const toolbarStore = useToolbarStore();
+    toolbarStore.setActiveTile('floor');
   });
   keyboard.on('keydown-THREE', () => {
-    useToolbarStore.getState().setActiveTile('unlinkedPortal');
+    const toolbarStore = useToolbarStore();
+    toolbarStore.setActiveTile('unlinkedPortal');
   });
 
   // G - toggle сетки
   keyboard.on('keydown-G', () => {
-    useUIStore.getState().toggleGrid();
+    const uiStore = useUIStore();
+    uiStore.toggleGrid();
   });
 }
