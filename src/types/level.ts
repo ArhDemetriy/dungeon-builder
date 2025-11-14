@@ -1,29 +1,8 @@
-export interface RegularTile {
+export interface PrimitiveTile {
   type: 'wall' | 'floor' | 'unlinkedPortal';
 }
 
-export type PrimitiveTile = RegularTile;
-
-export interface PortalTile {
-  type: 'portal';
-  portalId: string;
-}
-
-export type ComplexTile = PortalTile;
-
-export type GridTile = PrimitiveTile | ComplexTile;
-
-export function isPrimitiveTile(tile: GridTile): tile is PrimitiveTile {
-  return tile.type === 'wall' || tile.type === 'floor' || tile.type === 'unlinkedPortal';
-}
-
-export interface Portal {
-  id: string;
-  name: string;
-  endpoints: { [k in 'A' | 'B']: { levelId: string; position: { x: number; y: number } } };
-  color?: number;
-  createdAt: number;
-}
+export type GridTile = PrimitiveTile;
 
 export interface Level {
   id: string;

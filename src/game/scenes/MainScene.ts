@@ -1,13 +1,12 @@
 import { debounce } from 'lodash-es';
 import { type Cameras, Input, Scene } from 'phaser';
 
-import { CAMERA_CONFIG, DEFAULT_TILE, MOVEMENT_CONFIG, TILE_SIZE } from '@/game/constants';
+import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_SIZE } from '@/game/constants';
 import { GridRenderer } from '@/game/renderers/GridRenderer';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
 import { useLevelStore } from '@/store/levelStore';
 import { useToolbarStore } from '@/store/toolbarStore';
 import { useUIStore } from '@/store/uiStore';
-import { isPrimitiveTile } from '@/types/level';
 
 export class MainScene extends Scene {
   private gridRenderer!: GridRenderer;
@@ -120,7 +119,7 @@ class TileController {
     const tileY = Math.floor(worldPoint.y / TILE_SIZE);
 
     const tile = levelStore.getTile(levelStore.currentLevelId, tileX, tileY);
-    if (!tile || !isPrimitiveTile(tile)) return;
+    if (!tile) return;
 
     useToolbarStore().setActiveTile(tile.type);
   }
