@@ -1,7 +1,7 @@
 import { debounce } from 'lodash-es';
-import { type Cameras, Input, Scene } from 'phaser';
+import { type Cameras, Input, Scene, type Time } from 'phaser';
 
-import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_SIZE } from '@/game/constants';
+import { CAMERA_CONFIG, DEFAULT_TILE, MOVEMENT_CONFIG, TILE_INDEX, TILE_SIZE } from '@/game/constants';
 import { GridRenderer } from '@/game/renderers/GridRenderer';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
 import { useLevelStore } from '@/store/levelStore';
@@ -15,6 +15,9 @@ export class MainScene extends Scene {
   private cameraMoveController!: CameraMoveController;
   // @ts-expect-error - контроллер не используется напрямую, но необходим для управления тайлами
   private tileController!: TileController;
+  private tilemapStreamingController!: TilemapStreamingController;
+  // @ts-expect-error - таймер не используется напрямую, но необходим для управления пердзагрузкой тайлов
+  private tilemapStreamingControllerTimer!: Time.TimerEvent;
 
   constructor() {
     super({ key: 'MainScene' });
@@ -41,6 +44,20 @@ export class MainScene extends Scene {
       camera,
       input,
       gridRenderer: this.gridRenderer,
+    });
+
+    const { heightInPixels, widthInPixels } = this.gridRenderer.getTilemapSettings();
+    this.tilemapStreamingController = new TilemapStreamingController({
+      camera,
+      heightTailmapInPixels: heightInPixels,
+      widthTailmapInPixels: widthInPixels,
+    });
+    this.tilemapStreamingControllerTimer = this.time.addEvent({
+      delay: TilemapStreamingController.calculateTimeToTraverse({
+        minTilemapSizeInPixels: Math.min(heightInPixels, widthInPixels),
+      }),
+      callback: () => this.tilemapStreamingController.update(),
+      loop: true,
     });
 
     // Регистрируем интерфейсные клавиши
@@ -233,4 +250,45 @@ function registerUIKeyboardBindings(keyboard: Input.Keyboard.KeyboardPlugin) {
     const uiStore = useUIStore();
     uiStore.toggleGrid();
   });
+}
+
+class TilemapStreamingController {
+  private readonly camera: Cameras.Scene2D.Camera;
+  constructor({
+    camera,
+  }: {
+    camera: Cameras.Scene2D.Camera;
+    heightTailmapInPixels: number;
+    widthTailmapInPixels: number;
+  }) {
+    this.camera = camera;
+  }
+  update() {
+    const { centerX, centerY } = this.camera;
+  }
+  private static buildMapData(levelIndex: number, width: number, height: number, offsetX: number, offsetY: number) {
+    const levelStore = useLevelStore();
+    const getTile = levelStore.getTile.bind(levelStore);
+    return Array.from({ length: height }, (_, y) =>
+      Array.from(
+        { length: width },
+        (_, x) => TILE_INDEX[(getTile(levelIndex, x + offsetX, y + offsetY) ?? DEFAULT_TILE).type]
+      )
+    );
+  }
+
+  static calculateTimeToTraverse({
+    minTilemapSizeInPixels,
+    fraction = 1 / 20,
+  }: {
+    minTilemapSizeInPixels: number;
+    fraction?: number;
+  }) {
+    // Максимальная скорость камеры при minZoom
+    // speed = moveSpeed × (maxZoom / minZoom)
+    const distanceInPixels = minTilemapSizeInPixels * fraction;
+    const MAX_SPEED_PX_PER_MSEC = CAMERA_CONFIG.moveSpeed * (CAMERA_CONFIG.maxZoom / CAMERA_CONFIG.minZoom);
+    const timeInMs = distanceInPixels / MAX_SPEED_PX_PER_MSEC;
+    return Math.round(timeInMs);
+  }
 }
