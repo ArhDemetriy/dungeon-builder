@@ -1,5 +1,7 @@
 # TypeScript Style Guide - Dungeon Builder
 
+> Vue 3 + Composition API + Pinia + Phaser
+
 ## Принципы типизации
 
 ### Inline Types
@@ -11,7 +13,7 @@
 function createTile(data: { position: { x: number; y: number }; type: string }) { }
 
 // ✅ Отдельный тип для моделей
-interface Building { id: string; type: BuildingType; }
+interface Level { id: string; name: string; tiles: Map<string, GridTile>; }
 ```
 
 ### Type Inference
@@ -141,26 +143,137 @@ import { create, type StateCreator } from 'zustand';
 - **Типы**: PascalCase (`GameError`)
 - **Константы**: UPPER_SNAKE_CASE или camelCase с `as const`
 
-## React
+## Vue Composition API
 
-### Hooks порядок
+### Script setup
 
-```typescript
-function Component() {
-  const store = useStore();              // 1. Stores
-  const [state, setState] = useState(0); // 2. State
-  const value = useMemo(() => ..., []);  // 3. Memo
-  useEffect(() => { }, []);              // 4. Effects
-  return <div />;
-}
+Используйте `<script setup lang="ts">` для всех компонентов.
+
+```vue
+<script setup lang="ts">
+import { useToolbarStore } from '@/store/toolbarStore';
+
+const toolbarStore = useToolbarStore();
+</script>
+
+<template>
+  <button @click="toolbarStore.setActiveTile('wall')">
+    Wall
+  </button>
+</template>
 ```
 
 ### Props inline
 
 ```typescript
-function Button({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return <button onClick={onClick}>{children}</button>;
-}
+// Для простых компонентов
+defineProps<{
+  tileType: string;
+  position: { x: number; y: number };
+}>();
+
+// С дефолтами
+withDefaults(
+  defineProps<{ size?: number }>(),
+  { size: 32 }
+);
+```
+
+## Pinia Stores
+
+### Структура store (Composition API style)
+
+```typescript
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
+
+export const useLevelStore = defineStore('level', () => {
+  // State
+  const levels = ref(new Map<string, Level>());
+  const currentLevelId = ref<string | null>(null);
+
+  return {
+    levels,
+    currentLevelId,
+
+    // Геттеры - стрелочные функции
+    getTile: (levelId: string, x: number, y: number) =>
+      levels.value.get(levelId)?.tiles.get(`${x},${y}`),
+
+    // Экшены - обычные функции
+    createLevel(name: string) {
+      const id = nanoid();
+      levels.value.set(id, { id, name, tiles: new Map() });
+      return id;
+    },
+
+    // Простые сеттеры - стрелочные функции
+    setCurrentLevel: (id: string) => (currentLevelId.value = id),
+  };
+});
+```
+
+### Мутабельность
+
+Pinia - мутабельный state manager. Изменяйте состояние напрямую.
+
+```typescript
+// ✅ Прямая мутация
+level.tiles.set(key, tile);
+map.value.delete(id);
+
+// ❌ Иммутабельный подход не нужен
+map.value = new Map(map.value).set(key, value);
+```
+
+### Persistence
+
+Используйте Map/Set для больших коллекций. Сериализация настроена глобально.
+
+```typescript
+export const useLevelStore = defineStore(
+  'level',
+  () => { /* ... */ },
+  { persist: { key: 'level-store' } }
+);
+```
+
+## Phaser
+
+### Tilemap для статичных слоев
+
+Используйте Phaser Tilemap для сеток тайлов (автоматический culling, WebGL батчинг).
+
+```typescript
+this.tilemap = scene.make.tilemap({ tileWidth: 32, tileHeight: 32 });
+this.tileset = this.tilemap.addTilesetImage('tiles', 'tiles', 32, 32, 0, 2);
+this.layer = this.tilemap.createBlankLayer('main', this.tileset);
+```
+
+### Texture spacing
+
+Добавляйте spacing между тайлами в атласе для предотвращения texture bleeding.
+
+```typescript
+const TILE_SPACING = 2;
+ctx.fillRect((TILE_SIZE + TILE_SPACING) * index, 0, TILE_SIZE, TILE_SIZE);
+```
+
+## Архитектура
+
+### YAGNI - не добавляйте неиспользуемый код
+
+Удаляйте фичи, которые мешают разработке текущей архитектуры. Вернете когда понадобятся.
+
+### Map/Set для больших коллекций
+
+```typescript
+// ✅ Map для O(1) доступа
+tiles: Map<string, GridTile>
+levels: Map<string, Level>
+
+// ❌ Array для поиска по ID требует O(n)
+tiles: Array<{ id: string; data: GridTile }>
 ```
 
 ## ESLint
@@ -168,9 +281,12 @@ function Button({ onClick, children }: { onClick: () => void; children: React.Re
 - Неиспользуемые переменные с `_` игнорируются
 - `@ts-ignore` запрещен, используйте `@ts-expect-error` с описанием
 - Return types не требуются (type inference)
+- Vue SFC должны использовать `script-setup`
 
 ## Ссылки
 
+- [Vue Composition API](https://vuejs.org/guide/extras/composition-api-faq.html)
+- [Pinia](https://pinia.vuejs.org/)
+- [Phaser Tilemap](https://newdocs.phaser.io/docs/3.80.0/Phaser.Tilemaps.Tilemap)
 - [satisfies](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-9.html#the-satisfies-operator)
 - [neverthrow](https://github.com/supermacro/neverthrow)
-- [Discriminated Unions](https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes-func.html#discriminated-unions)
