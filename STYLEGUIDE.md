@@ -3,6 +3,7 @@
 ## Принципы типизации
 
 ### Inline Types
+
 Описывайте типы по месту использования. Создавайте отдельные типы только если используется 2+ раз или это модель данных.
 
 ```typescript
@@ -14,6 +15,7 @@ interface Building { id: string; type: BuildingType; }
 ```
 
 ### Type Inference
+
 Не указывайте явно типы возвращаемых значений - TypeScript выведет их автоматически.
 
 ```typescript
@@ -23,6 +25,7 @@ function getTileColor(type: string) {
 ```
 
 ### satisfies > as
+
 Используйте `satisfies` для проверки типов без потери точности. `as` отключает проверку.
 
 ```typescript
@@ -30,6 +33,7 @@ const config = { tileSize: 32, gridWidth: 30 } satisfies GameConfig;
 ```
 
 ### interface > type
+
 Предпочитайте `interface` для объектов. `type` только для unions и сложных типов.
 
 ```typescript
@@ -38,6 +42,7 @@ type TileType = 'empty' | 'floor' | 'wall';
 ```
 
 ### as const для литералов
+
 ```typescript
 const COLORS = { floor: 0x8B7355, wall: 0x4A4A4A } as const;
 ```
@@ -45,6 +50,7 @@ const COLORS = { floor: 0x8B7355, wall: 0x4A4A4A } as const;
 ## Обработка ошибок
 
 ### neverthrow для Result-based errors
+
 ```typescript
 import { ok, err, type Result } from 'neverthrow';
 
@@ -57,6 +63,7 @@ loadLevel(5).map(renderLevel).mapErr(error => console.error(error));
 ```
 
 ### Exhaustive checks с ts-expect
+
 ```typescript
 import { expectNever } from 'ts-expect';
 
@@ -72,12 +79,14 @@ function handle(error: { type: 'a' } | { type: 'b' }) {
 ## Код стиль
 
 ### Функциональный подход
+
 ```typescript
 const active = tiles.filter(t => t.type !== 'empty').map(t => ({ ...t, active: true }));
 const newState = { ...state, levels: state.levels.map((l, i) => i === idx ? updated : l) };
 ```
 
 ### Неиспользуемые переменные
+
 Префикс `_` для параметров которые нужны для сигнатуры.
 
 ```typescript
@@ -87,6 +96,7 @@ function render(_timestamp: number, data: Data) { return processData(data); }
 ## Импорты
 
 ### Именованные импорты (не default)
+
 ```typescript
 // ✅ Именованные
 import { Game, Scene, type Types } from 'phaser';
@@ -98,6 +108,7 @@ export default function App() { }
 ```
 
 ### Алиас @/* (не относительные пути)
+
 ```typescript
 // ✅ Алиас
 import { useCameraZoomStore } from '@/store/cameraStore';
@@ -110,12 +121,14 @@ import { useCameraZoomStore } from '../../store/cameraStore';
 **Исключение:** CSS modules могут использовать `./styles.module.css`
 
 ### type для импорта типов
+
 ```typescript
 import { Game, type Types } from 'phaser';
 import { create, type StateCreator } from 'zustand';
 ```
 
 ### Порядок (автосортировка Prettier)
+
 1. Внешние библиотеки
 2. Внутренние (utils, services, stores, hooks)
 3. Компоненты
@@ -131,6 +144,7 @@ import { create, type StateCreator } from 'zustand';
 ## React
 
 ### Hooks порядок
+
 ```typescript
 function Component() {
   const store = useStore();              // 1. Stores
@@ -142,6 +156,7 @@ function Component() {
 ```
 
 ### Props inline
+
 ```typescript
 function Button({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return <button onClick={onClick}>{children}</button>;
