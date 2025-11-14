@@ -1,6 +1,8 @@
 import { Scene } from 'phaser';
 
-import { TILE_COLORS, TILE_KEYS, TILE_SIZE, TILE_SPACING, TILE_TEXTURE_KEY } from '@/game/constants';
+import { TILE_COLORS, TILE_SIZE, TILE_SPACING, TILE_TEXTURE_KEY } from '@/game/constants';
+import { useLevelStore } from '@/store/levelStore';
+import { tileKey } from '@/types/level';
 
 export class PreloadScene extends Scene {
   constructor() {
@@ -13,7 +15,21 @@ export class PreloadScene extends Scene {
   }
 
   create() {
-    // Сразу переключаемся на главную сцену
+    // Инициализация игрового состояния
+    const levelStore = useLevelStore();
+    if (!levelStore.levels.length) {
+      levelStore.addLevelAtEnd({
+        name: 'Уровень 1',
+        tiles: new Map(
+          Array.from({ length: 5 }, (_, i) => i - 2).flatMap(x =>
+            Array.from({ length: 5 }, (_, i) => i - 2).map(y => [tileKey(x, y), { type: 'floor' as const }] as const)
+          )
+        ),
+        metadata: {},
+      });
+    }
+
+    // Переключаемся на главную сцену
     this.scene.start('MainScene');
   }
 

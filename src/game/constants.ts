@@ -5,14 +5,14 @@ export const TILE_SPACING = 2;
 
 export const TILE_COLORS = {
   empty: 0x000000,
-  wall: 0x000000,
+  wall: 0x1a1a1a,
   floor: 0x8b7355,
   unlinkedPortal: 0x666666,
 } as const;
 
 export const TILE_TEXTURE_KEY = 'tiles';
 
-export const DEFAULT_TILE = { type: 'wall' } satisfies PrimitiveTile;
+export const DEFAULT_TILE = { type: 'empty' } satisfies PrimitiveTile;
 
 export const TILE_INDEX = {
   empty: 0,

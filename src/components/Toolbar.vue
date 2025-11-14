@@ -28,10 +28,10 @@ const uiStore = useUIStore();
         type="radio"
         name="tile-type"
         value="wall"
+        class="sr-only"
         :checked="toolbarStore.activeTile === 'wall'"
         @change="toolbarStore.setActiveTile('wall')"
-        class="sr-only"
-      />
+      >
       <div class="h-6 w-6 border border-gray-600 bg-black" />
       <span class="text-xs text-gray-400">1</span>
     </label>
@@ -52,10 +52,10 @@ const uiStore = useUIStore();
         type="radio"
         name="tile-type"
         value="floor"
+        class="sr-only"
         :checked="toolbarStore.activeTile === 'floor'"
         @change="toolbarStore.setActiveTile('floor')"
-        class="sr-only"
-      />
+      >
       <div class="h-6 w-6 bg-[#8B7355]" />
       <span class="text-xs text-gray-400">2</span>
     </label>
@@ -76,10 +76,10 @@ const uiStore = useUIStore();
         type="radio"
         name="tile-type"
         value="unlinked-portal"
+        class="sr-only"
         :checked="toolbarStore.activeTile === 'unlinkedPortal'"
         @change="toolbarStore.setActiveTile('unlinkedPortal')"
-        class="sr-only"
-      />
+      >
       <div class="h-6 w-6 border border-yellow-500 bg-gray-600" />
       <span class="text-xs text-gray-400">3</span>
     </label>
@@ -99,8 +99,17 @@ const uiStore = useUIStore();
       "
       title="Toggle Grid (G)"
     >
-      <input type="checkbox" :checked="uiStore.showGrid" @change="uiStore.toggleGrid()" class="sr-only" />
-      <svg class="h-6 w-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+      <input
+        type="checkbox"
+        class="sr-only"
+        :checked="uiStore.showGrid"
+        @change="uiStore.toggleGrid()"
+      >
+      <svg
+        class="h-6 w-6 text-white"
+        fill="currentColor"
+        viewBox="0 0 24 24"
+      >
         <path d="M3 3v8h8V3H3zm0 10v8h8v-8H3zm10-10v8h8V3h-8zm0 10v8h8v-8h-8z" />
       </svg>
     </label>
