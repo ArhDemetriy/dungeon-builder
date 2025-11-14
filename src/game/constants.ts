@@ -4,6 +4,7 @@ export const TILE_SIZE = 32;
 export const TILE_SPACING = 2;
 
 export const TILE_COLORS = {
+  empty: 0x000000,
   wall: 0x000000,
   floor: 0x8b7355,
   unlinkedPortal: 0x666666,

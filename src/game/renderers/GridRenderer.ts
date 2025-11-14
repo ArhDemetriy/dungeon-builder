@@ -39,9 +39,8 @@ export class GridRenderer {
     this.gridGraphics = scene.add.graphics();
   }
 
-  loadLevel(levelId: string) {
-    const levelStore = useLevelStore();
-    const level = levelStore.levels.get(levelId);
+  loadLevel(levelIndex: number) {
+    const level = useLevelStore().levels[levelIndex];
     if (!level) return;
 
     // Очищаем слой

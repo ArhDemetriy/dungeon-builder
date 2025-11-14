@@ -21,12 +21,9 @@ export class MainScene extends Scene {
   }
 
   create() {
-    // Инициализируем первый уровень если его нет
     const levelStore = useLevelStore();
-    if (!levelStore.levels.size) levelStore.createLevel('Уровень 1');
-
     this.gridRenderer = new GridRenderer(this);
-    if (levelStore.currentLevelId) this.gridRenderer.loadLevel(levelStore.currentLevelId);
+    this.gridRenderer.loadLevel(levelStore.currentLevelIndex);
 
     const { main: camera } = this.cameras;
     const { input } = this;
@@ -92,7 +89,8 @@ class TileController {
 
   private placeTile(pointer: Input.Pointer) {
     const levelStore = useLevelStore();
-    if (!levelStore.currentLevelId) return;
+    const levelIndex = levelStore.currentLevelIndex;
+    if (levelIndex < 0 || levelIndex >= levelStore.levels.length) return;
 
     // Конвертируем позицию клика в координаты тайла
     const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
@@ -101,24 +99,25 @@ class TileController {
 
     // Размещаем тайл
     const toolbarStore = useToolbarStore();
-    const succsess = levelStore.setTile(levelStore.currentLevelId, tileX, tileY, { type: toolbarStore.activeTile });
-    if (!succsess) return;
+    const success = levelStore.setTile(levelIndex, tileX, tileY, { type: toolbarStore.activeTile });
+    if (!success) return;
 
     // Обновляем визуальное представление тайла
-    const tile = levelStore.getTile(levelStore.currentLevelId, tileX, tileY);
+    const tile = levelStore.getTile(levelIndex, tileX, tileY);
     if (tile) this.gridRenderer.updateTile(tileX, tileY, tile);
   }
 
   private eyedropperTool(pointer: Input.Pointer) {
     const levelStore = useLevelStore();
-    if (!levelStore.currentLevelId) return;
+    const levelIndex = levelStore.currentLevelIndex;
+    if (levelIndex < 0 || levelIndex >= levelStore.levels.length) return;
 
     // Конвертируем позицию клика в координаты тайла
     const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
     const tileX = Math.floor(worldPoint.x / TILE_SIZE);
     const tileY = Math.floor(worldPoint.y / TILE_SIZE);
 
-    const tile = levelStore.getTile(levelStore.currentLevelId, tileX, tileY);
+    const tile = levelStore.getTile(levelIndex, tileX, tileY);
     if (!tile) return;
 
     useToolbarStore().setActiveTile(tile.type);

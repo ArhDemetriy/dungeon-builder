@@ -1,4 +1,3 @@
-import { nanoid } from 'nanoid';
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
@@ -9,40 +8,52 @@ import { tileKey } from '@/types/level';
 export const useLevelStore = defineStore(
   'level',
   () => {
-    const levels = ref(new Map<string, Level>());
-    const currentLevelId = ref<string | null>(null);
+    const levels = ref<Level[]>([
+      {
+        name: 'Уровень 1',
+        tiles: new Map(),
+        metadata: {},
+        createdAt: Date.now(),
+      },
+    ]);
+    const currentLevelIndex = ref<number>(0);
 
     return {
       levels,
-      currentLevelId,
+      currentLevelIndex,
 
-      getTile: (levelId: string, x: number, y: number) => levels.value.get(levelId)?.tiles.get(tileKey(x, y)),
-      setTile(levelId: string, x: number, y: number, tile: GridTile) {
-        const level = levels.value.get(levelId);
+      getTile: (levelIndex: number, x: number, y: number) => levels.value[levelIndex]?.tiles.get(tileKey(x, y)),
+
+      setTile(levelIndex: number, x: number, y: number, tile: GridTile) {
+        const level = levels.value[levelIndex];
         if (!level) return false;
         level.tiles.set(tileKey(x, y), tile);
         useSaveStore().markDirty();
         return true;
       },
 
-      createLevel(name: string) {
-        const id = nanoid();
-        levels.value.set(id, {
-          id,
+      addLevelAtEnd(name: string) {
+        levels.value.push({
           name,
           tiles: new Map(),
           metadata: {},
           createdAt: Date.now(),
         });
-
-        if (!currentLevelId.value) {
-          currentLevelId.value = id;
-        }
-
         useSaveStore().markDirty();
-        return id;
       },
-      setCurrentLevel: (id: string) => (currentLevelId.value = id),
+
+      addLevelAtStart(name: string) {
+        levels.value.unshift({
+          name,
+          tiles: new Map(),
+          metadata: {},
+          createdAt: Date.now(),
+        });
+        currentLevelIndex.value += 1;
+        useSaveStore().markDirty();
+      },
+
+      setCurrentLevel: (index: number) => (currentLevelIndex.value = index),
     };
   },
   {

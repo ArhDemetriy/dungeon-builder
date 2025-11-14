@@ -5,7 +5,6 @@ export interface PrimitiveTile {
 export type GridTile = PrimitiveTile;
 
 export interface Level {
-  id: string;
   name: string;
   tiles: Map<ReturnType<typeof tileKey>, GridTile>;
   metadata: {
