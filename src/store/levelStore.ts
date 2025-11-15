@@ -24,8 +24,6 @@ export const useLevelStore = defineStore(
         const level = levels.value[levelIndex];
         if (!level) return false;
 
-        const { type: currentType } = level.tiles.get(tileKey(x, y)) ?? DEFAULT_TILE;
-        if (currentType === 'empty' && tile.type !== 'empty' && !hasNonEmptyNeighbor(level, x, y)) return false;
 
         level.tiles.set(tileKey(x, y), tile);
         useSaveStore().markDirty();

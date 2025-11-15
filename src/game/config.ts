@@ -8,16 +8,10 @@ export const gameConfig = {
   parent: 'phaser-container',
   backgroundColor: '#000000',
   scene: [PreloadScene, MainScene],
-  physics: {
-    default: 'arcade',
-    arcade: {
-      debug: false,
-    },
-  },
   scale: {
     mode: Scale.RESIZE,
     width: '100%',
     height: '100%',
-    autoCenter: Scale.CENTER_BOTH,
+    autoCenter: Scale.CENTER_HORIZONTALLY,
   },
 } satisfies Types.Core.GameConfig;
