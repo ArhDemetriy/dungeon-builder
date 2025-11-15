@@ -1,39 +1,60 @@
 import type { Cameras, GameObjects, Scene, Tilemaps } from 'phaser';
 
-import { GRID_CONFIG, TILE_INDEX, TILE_SIZE, TILE_SPACING, TILE_TEXTURE_KEY } from '@/game/constants';
+import {
+  CAMERA_CONFIG,
+  DEFAULT_TILE,
+  GRID_CONFIG,
+  TILE_INDEX,
+  TILE_SIZE,
+  TILE_SPACING,
+  TILE_TEXTURE_KEY,
+} from '@/game/constants';
 import { useLevelStore } from '@/store/levelStore';
 import type { GridTile } from '@/types/level';
 import { parseTileKey } from '@/types/level';
 
 export class GridRenderer {
-  private tilemap: Tilemaps.Tilemap;
-  private tileset: Tilemaps.Tileset;
   private tileLayer: Tilemaps.TilemapLayer;
   private gridGraphics: GameObjects.Graphics;
+  private offsetTiles: { X: number; Y: number };
 
   constructor(scene: Scene) {
-    // Создаём большую пустую карту
-    this.tilemap = scene.make.tilemap({
+    const {
+      cameras: { main: camera },
+    } = scene;
+    const { tilemapWidthAtTiles, tilemapHeightAtTiles } = (() => {
+      const tailmapSizeMultiplier = 2;
+      const k = tailmapSizeMultiplier / CAMERA_CONFIG.minZoom / TILE_SIZE;
+      const tilemapWidthAtTiles = Math.ceil(k * camera.width);
+      const tilemapHeightAtTiles = Math.ceil(k * camera.height);
+      return { tilemapWidthAtTiles, tilemapHeightAtTiles };
+    })();
+    console.log('tilemap size ', { tilemapWidthAtTiles, tilemapHeightAtTiles });
+
+    const tilemap = scene.make.tilemap({
       tileWidth: TILE_SIZE,
       tileHeight: TILE_SIZE,
-      width: 1000,
-      height: 1000,
+      width: tilemapWidthAtTiles,
+      height: tilemapHeightAtTiles,
     });
+    const tilesetKey = 'tiles';
+    tilemap.addTilesetImage(tilesetKey, TILE_TEXTURE_KEY, TILE_SIZE, TILE_SIZE, 0, TILE_SPACING);
 
-    // Добавляем tileset с параметрами разбивки текстуры
-    // Параметры: name, key, tileWidth, tileHeight, tileMargin, tileSpacing
-    // spacing предотвращает texture bleeding (просачивание соседних тайлов)
-    this.tileset = this.tilemap.addTilesetImage(
-      TILE_TEXTURE_KEY,
-      TILE_TEXTURE_KEY,
-      TILE_SIZE,
-      TILE_SIZE,
-      0,
-      TILE_SPACING
+    const { X: offsetTilesX, Y: offsetTilesY } = (this.offsetTiles = (() => {
+      const { centerX, centerY } = camera;
+      const X = Math.round((centerX - (tilemapWidthAtTiles * TILE_SIZE) / 2) / TILE_SIZE);
+      const Y = Math.round((centerY - (tilemapHeightAtTiles * TILE_SIZE) / 2) / TILE_SIZE);
+      return { X, Y };
+    })());
+    console.log('tileLayer offset ', { offsetTilesX, offsetTilesY });
+
+    const tileLayerKey = 'layer0';
+    this.tileLayer = tilemap.createBlankLayer(
+      tileLayerKey,
+      tilesetKey,
+      offsetTilesX * TILE_SIZE,
+      offsetTilesY * TILE_SIZE
     )!;
-
-    // Создаём единый слой для всех тайлов
-    this.tileLayer = this.tilemap.createBlankLayer('tiles', this.tileset)!;
 
     // Graphics для сетки
     this.gridGraphics = scene.add.graphics();
@@ -42,21 +63,23 @@ export class GridRenderer {
   loadLevel(levelIndex: number) {
     const level = useLevelStore().levels[levelIndex];
     if (!level) return;
-
-    // Очищаем слой
-    this.tileLayer.fill(TILE_INDEX.empty);
-
-    // Загружаем все тайлы из store
-    level.tiles.forEach((tile, key) => {
-      const { x, y } = parseTileKey(key);
-      this.updateTile(x, y, tile);
-    });
+    const tileLayerData = (() => {
+      const { width, height } = this.tileLayer.tilemap;
+      const { X, Y } = this.offsetTiles;
+      return GridRenderer.buildTileLayerData({
+        widthTiles: width,
+        heightTiles: height,
+        offsetTilesX: X,
+        offsetTilesY: Y,
+      });
+    })();
+    this.tileLayer.putTilesAt(tileLayerData, 0, 0);
   }
 
   updateTile(x: number, y: number, { type }: GridTile) {
     const tileIndex = TILE_INDEX[type];
     if (tileIndex === undefined) return;
-    this.tileLayer.putTileAt(tileIndex, x, y);
+    this.tileLayer.putTileAt(tileIndex, x - this.offsetTiles.X, y - this.offsetTiles.Y);
   }
 
   renderGrid(camera: Cameras.Scene2D.Camera, showGrid: boolean) {
@@ -87,9 +110,25 @@ export class GridRenderer {
       this.gridGraphics.lineBetween(startTileX * TILE_SIZE, worldY, endTileX * TILE_SIZE, worldY);
     }
   }
-
-  destroy() {
-    this.tilemap.destroy();
-    this.gridGraphics.destroy();
+  private static buildTileLayerData({
+    widthTiles,
+    heightTiles,
+    offsetTilesX,
+    offsetTilesY,
+  }: {
+    widthTiles: number;
+    heightTiles: number;
+    offsetTilesX: number;
+    offsetTilesY: number;
+  }) {
+    const levelStore = useLevelStore();
+    const getTile = levelStore.getTile.bind(levelStore);
+    const { currentLevelIndex } = levelStore;
+    return Array.from({ length: heightTiles }, (_, y) =>
+      Array.from(
+        { length: widthTiles },
+        (_, x) => TILE_INDEX[(getTile(currentLevelIndex, x + offsetTilesX, y + offsetTilesY) ?? DEFAULT_TILE).type]
+      )
+    );
   }
 }

@@ -1,7 +1,15 @@
 import { debounce } from 'lodash-es';
 import { type Cameras, Input, Scene, type Time } from 'phaser';
 
-import { CAMERA_CONFIG, DEFAULT_TILE, MOVEMENT_CONFIG, TILE_INDEX, TILE_SIZE } from '@/game/constants';
+import {
+  CAMERA_CONFIG,
+  DEFAULT_TILE,
+  MOVEMENT_CONFIG,
+  TILE_INDEX,
+  TILE_SIZE,
+  TILE_SPACING,
+  TILE_TEXTURE_KEY,
+} from '@/game/constants';
 import { GridRenderer } from '@/game/renderers/GridRenderer';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
 import { useLevelStore } from '@/store/levelStore';
@@ -15,7 +23,7 @@ export class MainScene extends Scene {
   private cameraMoveController!: CameraMoveController;
   // @ts-expect-error - контроллер не используется напрямую, но необходим для управления тайлами
   private tileController!: TileController;
-  private tilemapStreamingController!: TilemapStreamingController;
+  // private tilemapStreamingController!: TilemapController;
   // @ts-expect-error - таймер не используется напрямую, но необходим для управления пердзагрузкой тайлов
   private tilemapStreamingControllerTimer!: Time.TimerEvent;
 
@@ -24,9 +32,8 @@ export class MainScene extends Scene {
   }
 
   create() {
-    const levelStore = useLevelStore();
     this.gridRenderer = new GridRenderer(this);
-    this.gridRenderer.loadLevel(levelStore.currentLevelIndex);
+    this.gridRenderer.loadLevel(useLevelStore().currentLevelIndex);
 
     const { main: camera } = this.cameras;
     const { input } = this;
@@ -46,19 +53,14 @@ export class MainScene extends Scene {
       gridRenderer: this.gridRenderer,
     });
 
-    const { heightInPixels, widthInPixels } = this.gridRenderer.getTilemapSettings();
-    this.tilemapStreamingController = new TilemapStreamingController({
-      camera,
-      heightTailmapInPixels: heightInPixels,
-      widthTailmapInPixels: widthInPixels,
-    });
-    this.tilemapStreamingControllerTimer = this.time.addEvent({
-      delay: TilemapStreamingController.calculateTimeToTraverse({
-        minTilemapSizeInPixels: Math.min(heightInPixels, widthInPixels),
-      }),
-      callback: () => this.tilemapStreamingController.update(),
-      loop: true,
-    });
+    // this.tilemapStreamingController = new TilemapController({ scene: this });
+    // this.tilemapStreamingControllerTimer = this.time.addEvent({
+    //   delay: TilemapController.calculateTimeToTraverse({
+    //     minTilemapSizeInPixels: Math.min(heightInPixels, widthInPixels),
+    //   }),
+    //   callback: () => this.tilemapStreamingController.update(),
+    //   loop: true,
+    // });
 
     // Регистрируем интерфейсные клавиши
     if (input.keyboard) registerUIKeyboardBindings(input.keyboard);
@@ -116,6 +118,10 @@ class TileController {
 
     // Размещаем тайл
     const toolbarStore = useToolbarStore();
+
+    // const { type: currentType } = level.tiles.get(tileKey(x, y)) ?? DEFAULT_TILE;
+    // if (currentType === 'empty' && tile.type !== 'empty' && !hasNonEmptyNeighbor(level, x, y)) return false;
+
     const success = levelStore.setTile(levelIndex, tileX, tileY, { type: toolbarStore.activeTile });
     if (!success) return;
 
@@ -252,27 +258,76 @@ function registerUIKeyboardBindings(keyboard: Input.Keyboard.KeyboardPlugin) {
   });
 }
 
-class TilemapStreamingController {
-  private readonly camera: Cameras.Scene2D.Camera;
-  constructor({
-    camera,
+class TilemapController {
+  constructor({ scene }: { scene: Scene }) {
+    const {
+      cameras: { main: camera },
+    } = scene;
+    const { tilemapWidthAtTiles, tilemapHeightAtTiles } = (() => {
+      const tilemapSizeMultiplier = 5;
+      const k = tilemapSizeMultiplier / CAMERA_CONFIG.minZoom / TILE_SIZE;
+      const tilemapWidthAtTiles = Math.ceil(k * camera.width);
+      const tilemapHeightAtTiles = Math.ceil(k * camera.height);
+      return { tilemapWidthAtTiles, tilemapHeightAtTiles };
+    })();
+
+    const tilemap = scene.make.tilemap({
+      tileWidth: TILE_SIZE,
+      tileHeight: TILE_SIZE,
+      width: tilemapWidthAtTiles * TILE_SIZE,
+      height: tilemapHeightAtTiles * TILE_SIZE,
+    });
+    const tilesetKey = 'tiles';
+    const tileset = tilemap.addTilesetImage(TILE_TEXTURE_KEY, tilesetKey, TILE_SIZE, TILE_SIZE, 0, TILE_SPACING);
+    if (!tileset) {
+      console.error('error add tileset ', tilesetKey);
+      return;
+    }
+
+    const { offsetTilesX, offsetTilesY } = (() => {
+      const { centerX, centerY } = camera;
+      const offsetTilesX = Math.round(centerX - (tilemapWidthAtTiles * TILE_SIZE) / 2) / TILE_SIZE;
+      const offsetTilesY = Math.round(centerY - (tilemapHeightAtTiles * TILE_SIZE) / 2) / TILE_SIZE;
+      return { offsetTilesX, offsetTilesY };
+    })();
+
+    const tileLayerKey = 'layer0';
+    const tileLayer = tilemap
+      .createLayer(tileLayerKey, tileset, offsetTilesX * TILE_SIZE, offsetTilesY * TILE_SIZE)
+      ?.putTilesAt(
+        TilemapController.buildTileLayerData({
+          widthTiles: tilemapWidthAtTiles,
+          heightTiles: tilemapHeightAtTiles,
+          offsetTilesX,
+          offsetTilesY,
+        }),
+        0,
+        0
+      );
+    if (!tileLayer) {
+      console.error('error create tileLayer ', tileLayerKey);
+      return;
+    }
+  }
+  update() {}
+  private static buildTileLayerData({
+    widthTiles,
+    heightTiles,
+    offsetTilesX,
+    offsetTilesY,
   }: {
-    camera: Cameras.Scene2D.Camera;
-    heightTailmapInPixels: number;
-    widthTailmapInPixels: number;
+    widthTiles: number;
+    heightTiles: number;
+    offsetTilesX: number;
+    offsetTilesY: number;
   }) {
-    this.camera = camera;
-  }
-  update() {
-    const { centerX, centerY } = this.camera;
-  }
-  private static buildMapData(levelIndex: number, width: number, height: number, offsetX: number, offsetY: number) {
     const levelStore = useLevelStore();
+    const { currentLevelIndex } = levelStore;
     const getTile = levelStore.getTile.bind(levelStore);
-    return Array.from({ length: height }, (_, y) =>
+    return Array.from({ length: heightTiles }, (_, y) =>
       Array.from(
-        { length: width },
-        (_, x) => TILE_INDEX[(getTile(levelIndex, x + offsetX, y + offsetY) ?? DEFAULT_TILE).type]
+        { length: widthTiles },
+        (_, x) => TILE_INDEX[(getTile(currentLevelIndex, x + offsetTilesX, y + offsetTilesY) ?? DEFAULT_TILE).type]
       )
     );
   }
