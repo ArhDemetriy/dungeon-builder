@@ -12,20 +12,23 @@ import {
 import { useLevelStore } from '@/store/levelStore';
 import type { GridTile } from '@/types/level';
 
-export class GridRenderer {
-  private gridGraphics: GameObjects.Graphics;
+export class TilemapController {
+  private readonly gridGraphics: GameObjects.Graphics;
   private readonly offsetTiles = { X: 0, Y: 0 };
   private readonly scene: Scene;
   private readonly tilemap: Tilemaps.Tilemap;
   private readonly tileLayers: [Tilemaps.TilemapLayer, Tilemaps.TilemapLayer];
   private avgTileGenTime = 200;
+  getAvgTileGenTime() {
+    return this.avgTileGenTime;
+  }
   private setAvgTileGenTime(timeGen: number) {
     return (this.avgTileGenTime = Math.ceil((this.avgTileGenTime + timeGen) / 2));
   }
 
   constructor(scene: Scene) {
     this.scene = scene;
-    const { widthAtTiles, heightAtTiles } = GridRenderer.getTilemapSize(this.scene.cameras.main);
+    const { widthAtTiles, heightAtTiles } = TilemapController.getTilemapSize(this.scene.cameras.main);
     const tilemap = (this.tilemap = this.scene.make.tilemap({
       tileWidth: TILE_SIZE,
       tileHeight: TILE_SIZE,
@@ -60,7 +63,7 @@ export class GridRenderer {
       const X = Math.round((centerX - (widthTiles * TILE_SIZE) / 2) / TILE_SIZE);
       const Y = Math.round((centerY - (heightTiles * TILE_SIZE) / 2) / TILE_SIZE);
 
-      const tileLayerData = GridRenderer.buildTileLayerData({
+      const tileLayerData = TilemapController.buildTileLayerData({
         widthTiles,
         heightTiles,
         offsetTilesX: X,
@@ -77,7 +80,7 @@ export class GridRenderer {
     this.updateLayer({ X, Y, tileLayerData });
   }
 
-  private reloadLayerOnCameraShift() {
+  reloadLayerOnCameraShift() {
     const shift = this.checkCameraPosition();
     if (!shift) return;
     const startTime = performance.now();
@@ -99,7 +102,7 @@ export class GridRenderer {
     this.updateLayer({
       X: offsetTilesX * TILE_SIZE,
       Y: offsetTilesY * TILE_SIZE,
-      tileLayerData: GridRenderer.buildTileLayerData({
+      tileLayerData: TilemapController.buildTileLayerData({
         widthTiles: width,
         heightTiles: height,
         offsetTilesX,

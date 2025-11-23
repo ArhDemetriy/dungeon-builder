@@ -1,38 +1,29 @@
 import { debounce } from 'lodash-es';
 import { type Cameras, Input, Scene, type Time } from 'phaser';
 
-import {
-  CAMERA_CONFIG,
-  DEFAULT_TILE,
-  MOVEMENT_CONFIG,
-  TILE_INDEX,
-  TILE_SIZE,
-  TILE_SPACING,
-  TILE_TEXTURE_KEY,
-} from '@/game/constants';
-import { GridRenderer } from '@/game/renderers/GridRenderer';
+import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_SIZE } from '@/game/constants';
+import { TilemapController } from '@/game/scenes/TilemapController';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
 import { useLevelStore } from '@/store/levelStore';
 import { useToolbarStore } from '@/store/toolbarStore';
 import { useUIStore } from '@/store/uiStore';
 
 export class MainScene extends Scene {
-  private gridRenderer!: GridRenderer;
+  private tilemapController!: TilemapController;
   // @ts-expect-error - контроллер не используется напрямую, но необходим для управления зумом
   private zoomController!: CameraZoomController;
   private cameraMoveController!: CameraMoveController;
   // @ts-expect-error - контроллер не используется напрямую, но необходим для управления тайлами
   private tileController!: TileController;
   // private tilemapStreamingController!: TilemapController;
-  // @ts-expect-error - таймер не используется напрямую, но необходим для управления пердзагрузкой тайлов
-  private tilemapStreamingControllerTimer!: Time.TimerEvent;
+  private tilemapStreamingTimer?: Time.TimerEvent;
 
   constructor() {
     super({ key: 'MainScene' });
   }
 
   create() {
-    this.gridRenderer = new GridRenderer(this);
+    this.tilemapController = new TilemapController(this);
 
     const { main: camera } = this.cameras;
     const { input } = this;
@@ -49,20 +40,22 @@ export class MainScene extends Scene {
     this.tileController = new TileController({
       camera,
       input,
-      gridRenderer: this.gridRenderer,
+      gridRenderer: this.tilemapController,
     });
-
-    // this.tilemapStreamingController = new TilemapController({ scene: this });
-    // this.tilemapStreamingControllerTimer = this.time.addEvent({
-    //   delay: TilemapController.calculateTimeToTraverse({
-    //     minTilemapSizeInPixels: Math.min(heightInPixels, widthInPixels),
-    //   }),
-    //   callback: () => this.tilemapStreamingController.update(),
-    //   loop: true,
-    // });
-
-    // Регистрируем интерфейсные клавиши
     if (input.keyboard) registerUIKeyboardBindings(input.keyboard);
+
+    this.tilemapStreamingTimer = this.time.addEvent({
+      delay: this.tilemapController.getAvgTileGenTime(),
+      callback: async () => {
+        await this.tilemapController.reloadLayerOnCameraShift();
+        const delay = this.tilemapController.getAvgTileGenTime();
+
+        this.tilemapStreamingTimer?.reset({
+          delay,
+          callback: this.tilemapStreamingTimer.callback,
+        });
+      },
+    });
   }
 
   update(time: number, delta: number) {
@@ -71,14 +64,14 @@ export class MainScene extends Scene {
 
     const { main: camera } = this.cameras;
     const uiStore = useUIStore();
-    this.gridRenderer.renderGrid(camera, uiStore.showGrid);
+    this.tilemapController.renderGrid(camera, uiStore.showGrid);
   }
 }
 
 class TileController {
   private readonly camera: Cameras.Scene2D.Camera;
   private readonly input: Input.InputPlugin;
-  private readonly gridRenderer: GridRenderer;
+  private readonly gridRenderer: TilemapController;
 
   constructor({
     camera,
@@ -87,7 +80,7 @@ class TileController {
   }: {
     camera: Cameras.Scene2D.Camera;
     input: Input.InputPlugin;
-    gridRenderer: GridRenderer;
+    gridRenderer: TilemapController;
   }) {
     this.camera = camera;
     this.input = input;
@@ -255,94 +248,4 @@ function registerUIKeyboardBindings(keyboard: Input.Keyboard.KeyboardPlugin) {
     const uiStore = useUIStore();
     uiStore.toggleGrid();
   });
-}
-
-class TilemapController {
-  constructor({ scene }: { scene: Scene }) {
-    const {
-      cameras: { main: camera },
-    } = scene;
-    const { tilemapWidthAtTiles, tilemapHeightAtTiles } = (() => {
-      const tilemapSizeMultiplier = 5;
-      const k = tilemapSizeMultiplier / CAMERA_CONFIG.minZoom / TILE_SIZE;
-      const tilemapWidthAtTiles = Math.ceil(k * camera.width);
-      const tilemapHeightAtTiles = Math.ceil(k * camera.height);
-      return { tilemapWidthAtTiles, tilemapHeightAtTiles };
-    })();
-
-    const tilemap = scene.make.tilemap({
-      tileWidth: TILE_SIZE,
-      tileHeight: TILE_SIZE,
-      width: tilemapWidthAtTiles * TILE_SIZE,
-      height: tilemapHeightAtTiles * TILE_SIZE,
-    });
-    const tilesetKey = 'tiles';
-    const tileset = tilemap.addTilesetImage(TILE_TEXTURE_KEY, tilesetKey, TILE_SIZE, TILE_SIZE, 0, TILE_SPACING);
-    if (!tileset) {
-      console.error('error add tileset ', tilesetKey);
-      return;
-    }
-
-    const { offsetTilesX, offsetTilesY } = (() => {
-      const { centerX, centerY } = camera;
-      const offsetTilesX = Math.round(centerX - (tilemapWidthAtTiles * TILE_SIZE) / 2) / TILE_SIZE;
-      const offsetTilesY = Math.round(centerY - (tilemapHeightAtTiles * TILE_SIZE) / 2) / TILE_SIZE;
-      return { offsetTilesX, offsetTilesY };
-    })();
-
-    const tileLayerKey = 'layer0';
-    const tileLayer = tilemap
-      .createLayer(tileLayerKey, tileset, offsetTilesX * TILE_SIZE, offsetTilesY * TILE_SIZE)
-      ?.putTilesAt(
-        TilemapController.buildTileLayerData({
-          widthTiles: tilemapWidthAtTiles,
-          heightTiles: tilemapHeightAtTiles,
-          offsetTilesX,
-          offsetTilesY,
-        }),
-        0,
-        0
-      );
-    if (!tileLayer) {
-      console.error('error create tileLayer ', tileLayerKey);
-      return;
-    }
-  }
-  update() {}
-  private static buildTileLayerData({
-    widthTiles,
-    heightTiles,
-    offsetTilesX,
-    offsetTilesY,
-  }: {
-    widthTiles: number;
-    heightTiles: number;
-    offsetTilesX: number;
-    offsetTilesY: number;
-  }) {
-    const levelStore = useLevelStore();
-    const { currentLevelIndex } = levelStore;
-    const getTile = levelStore.getTile.bind(levelStore);
-    return Array.from({ length: heightTiles }, (_, y) =>
-      Array.from(
-        { length: widthTiles },
-        (_, x) => TILE_INDEX[(getTile(currentLevelIndex, x + offsetTilesX, y + offsetTilesY) ?? DEFAULT_TILE).type]
-      )
-    );
-  }
-
-  static calculateTimeToTraverse({
-    minTilemapSizeInPixels,
-    fraction = 1 / 20,
-  }: {
-    minTilemapSizeInPixels: number;
-    fraction?: number;
-  }) {
-    // Максимальная скорость камеры при minZoom
-    // speed = moveSpeed × (maxZoom / minZoom)
-    const distanceInPixels = minTilemapSizeInPixels * fraction;
-    const MAX_SPEED_PX_PER_MSEC = CAMERA_CONFIG.moveSpeed * (CAMERA_CONFIG.maxZoom / CAMERA_CONFIG.minZoom);
-    const timeInMs = distanceInPixels / MAX_SPEED_PX_PER_MSEC;
-    return Math.round(timeInMs);
-  }
 }
