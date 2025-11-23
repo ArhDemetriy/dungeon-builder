@@ -11,7 +11,6 @@ import {
 } from '@/game/constants';
 import { useLevelStore } from '@/store/levelStore';
 import type { GridTile } from '@/types/level';
-import { parseTileKey } from '@/types/level';
 
 export class GridRenderer {
   private tileLayer: Tilemaps.TilemapLayer;
@@ -20,6 +19,10 @@ export class GridRenderer {
   private readonly scene: Scene;
   private readonly tilemap: Tilemaps.Tilemap;
   private readonly tileLayers: [Tilemaps.TilemapLayer, Tilemaps.TilemapLayer];
+  private avgTileGenTime = 200;
+  private setAvgTileGenTime(timeGen: number) {
+    return (this.avgTileGenTime = Math.ceil((this.avgTileGenTime + timeGen) / 2));
+  }
 
   constructor(scene: Scene) {
     this.scene = scene;
@@ -41,7 +44,7 @@ export class GridRenderer {
     ];
     if (!this.tileLayers[0] || !this.tileLayers[1]) throw new Error('unknown error from createBlankLayer');
 
-    this.loadTileLayerFromCamera();
+    this.centerLayerOnCamera();
 
     // Graphics для сетки
     this.gridGraphics = scene.add.graphics();
@@ -62,7 +65,7 @@ export class GridRenderer {
     this.tileLayers[1].setVisible(false);
   }
 
-  private loadTileLayerFromCamera() {
+  private centerLayerOnCamera() {
     const { X, Y, tileLayerData } = (() => {
       const { width: widthTiles, height: heightTiles } = this.tilemap;
       const { centerX, centerY } = this.scene.cameras.main;
@@ -85,32 +88,37 @@ export class GridRenderer {
 
     this.updateLayer({ X, Y, tileLayerData });
   }
-  private loadTileLayerFromShift() {
-    const { X, Y, tileLayerData } = (() => {
-      const { width: widthTiles, height: heightTiles } = this.tilemap;
-      const { centerX, centerY } = this.scene.cameras.main;
-      const X = Math.round((centerX - (widthTiles * TILE_SIZE) / 2) / TILE_SIZE);
-      const Y = Math.round((centerY - (heightTiles * TILE_SIZE) / 2) / TILE_SIZE);
+  private reloadLayerOnCameraShift() {
+    const shift = this.checkCameraPosition();
+    if (!shift) return;
+    const startTime = performance.now();
 
-      const tileLayerData = GridRenderer.buildTileLayerData({
-        widthTiles,
-        heightTiles,
-        offsetTilesX: X,
-        offsetTilesY: Y,
-      });
+    const { width, height } = this.tilemap;
+    const { left, right, top, bottom } = this.scene.cameras.main.getBounds();
+    const offsetTilesX =
+      shift.x > 0
+        ? Math.round(left / TILE_SIZE) - 2
+        : shift.x < 0
+          ? Math.round(right / TILE_SIZE) + 2 - width
+          : Math.round(this.getActiveLayer().x / TILE_SIZE);
+    const offsetTilesY =
+      shift.y > 0
+        ? Math.round(top / TILE_SIZE) - 2
+        : shift.y < 0
+          ? Math.round(bottom / TILE_SIZE) + 2 - height
+          : Math.round(this.getActiveLayer().y / TILE_SIZE);
+    this.updateLayer({
+      X: offsetTilesX * TILE_SIZE,
+      Y: offsetTilesY * TILE_SIZE,
+      tileLayerData: GridRenderer.buildTileLayerData({
+        widthTiles: width,
+        heightTiles: height,
+        offsetTilesX,
+        offsetTilesY,
+      }),
+    });
 
-      return {
-        X,
-        Y,
-        tileLayerData,
-      };
-    })();
-
-    this.tileLayers[1].setVisible(false).setPosition(X, Y).putTilesAt(tileLayerData, 0, 0).setVisible(true);
-    this.tileLayers.reverse();
-    this.offsetTiles.X = X;
-    this.offsetTiles.Y = Y;
-    this.tileLayers[1].setVisible(false);
+    this.setAvgTileGenTime(performance.now() - startTime);
   }
 
   private checkCameraPosition() {
