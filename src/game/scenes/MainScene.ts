@@ -33,7 +33,6 @@ export class MainScene extends Scene {
 
   create() {
     this.gridRenderer = new GridRenderer(this);
-    this.gridRenderer.loadLevel(useLevelStore().currentLevelIndex);
 
     const { main: camera } = this.cameras;
     const { input } = this;

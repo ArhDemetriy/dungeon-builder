@@ -13,7 +13,6 @@ import { useLevelStore } from '@/store/levelStore';
 import type { GridTile } from '@/types/level';
 
 export class GridRenderer {
-  private tileLayer: Tilemaps.TilemapLayer;
   private gridGraphics: GameObjects.Graphics;
   private readonly offsetTiles = { X: 0, Y: 0 };
   private readonly scene: Scene;
@@ -26,9 +25,8 @@ export class GridRenderer {
 
   constructor(scene: Scene) {
     this.scene = scene;
-
-    const { widthAtTiles, heightAtTiles } = this.getTilemapSize();
-    const tilemap = (this.tilemap = scene.make.tilemap({
+    const { widthAtTiles, heightAtTiles } = GridRenderer.getTilemapSize(this.scene.cameras.main);
+    const tilemap = (this.tilemap = this.scene.make.tilemap({
       tileWidth: TILE_SIZE,
       tileHeight: TILE_SIZE,
       width: widthAtTiles,
@@ -38,31 +36,21 @@ export class GridRenderer {
     const tilesetKey = 'tiles';
     tilemap.addTilesetImage(tilesetKey, TILE_TEXTURE_KEY, TILE_SIZE, TILE_SIZE, 0, TILE_SPACING);
 
-    this.tileLayers = [
-      (this.tileLayer = tilemap.createBlankLayer('layer0', tilesetKey)!),
-      (this.tileLayer = tilemap.createBlankLayer('layer1', tilesetKey)!),
-    ];
-    if (!this.tileLayers[0] || !this.tileLayers[1]) throw new Error('unknown error from createBlankLayer');
+    const layer0 = tilemap.createBlankLayer('layer0', tilesetKey);
+    const layer1 = tilemap.createBlankLayer('layer1', tilesetKey);
+    if (!layer0 || !layer1) throw new Error('unknown error from createBlankLayer');
 
+    this.tileLayers = [layer0, layer1];
     this.centerLayerOnCamera();
 
     // Graphics для сетки
     this.gridGraphics = scene.add.graphics();
   }
 
-  private getTilemapSize() {
+  private static getTilemapSize(camera: Cameras.Scene2D.Camera) {
     const tilemapSizeMultiplier = 2;
     const k = tilemapSizeMultiplier / CAMERA_CONFIG.minZoom / TILE_SIZE;
-    const { main: camera } = this.scene.cameras;
     return { widthAtTiles: Math.ceil(k * camera.width), heightAtTiles: Math.ceil(k * camera.height) };
-  }
-
-  private updateLayer({ X, Y, tileLayerData }: { X: number; Y: number; tileLayerData: number[][] }) {
-    this.tileLayers[1].setVisible(false).setPosition(X, Y).putTilesAt(tileLayerData, 0, 0).setVisible(true);
-    this.tileLayers.reverse();
-    this.offsetTiles.X = X;
-    this.offsetTiles.Y = Y;
-    this.tileLayers[1].setVisible(false);
   }
 
   private centerLayerOnCamera() {
@@ -88,13 +76,14 @@ export class GridRenderer {
 
     this.updateLayer({ X, Y, tileLayerData });
   }
+
   private reloadLayerOnCameraShift() {
     const shift = this.checkCameraPosition();
     if (!shift) return;
     const startTime = performance.now();
 
     const { width, height } = this.tilemap;
-    const { left, right, top, bottom } = this.scene.cameras.main.getBounds();
+    const { left, right, top, bottom } = this.scene.cameras.main.worldView;
     const offsetTilesX =
       shift.x > 0
         ? Math.round(left / TILE_SIZE) - 2
@@ -120,7 +109,6 @@ export class GridRenderer {
 
     this.setAvgTileGenTime(performance.now() - startTime);
   }
-
   private checkCameraPosition() {
     const layer = this.getActiveLayer();
     const { centerX, centerY } = this.scene.cameras.main;
@@ -145,24 +133,16 @@ export class GridRenderer {
     return null; // Камера в центральной зоне
   }
 
-  private getActiveLayer() {
-    return this.tileLayers[0];
+  private updateLayer({ X, Y, tileLayerData }: { X: number; Y: number; tileLayerData: number[][] }) {
+    this.tileLayers[1].setVisible(false).setPosition(X, Y).putTilesAt(tileLayerData, 0, 0).setVisible(true);
+    this.tileLayers.reverse();
+    this.offsetTiles.X = X;
+    this.offsetTiles.Y = Y;
+    this.tileLayers[1].setVisible(false);
   }
 
-  loadLevel(levelIndex: number) {
-    const level = useLevelStore().levels[levelIndex];
-    if (!level) return;
-    const tileLayerData = (() => {
-      const { width, height } = this.tileLayer.tilemap;
-      const { X, Y } = this.offsetTiles;
-      return GridRenderer.buildTileLayerData({
-        widthTiles: width,
-        heightTiles: height,
-        offsetTilesX: X,
-        offsetTilesY: Y,
-      });
-    })();
-    this.tileLayer.putTilesAt(tileLayerData, 0, 0);
+  private getActiveLayer() {
+    return this.tileLayers[0];
   }
 
   updateTile(x: number, y: number, { type }: GridTile) {
