@@ -1,12 +1,11 @@
 import { debounce } from 'lodash-es';
 import { type Cameras, Input, Scene, type Time } from 'phaser';
 
-import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_SIZE } from '@/game/constants';
+import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_KEYS, TILE_SIZE } from '@/game/constants';
 import { TilemapController } from '@/game/scenes/TilemapController';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
-import { useLevelStore } from '@/store/levelStore';
 import { useToolbarStore } from '@/store/toolbarStore';
-import { useUIStore } from '@/store/uiStore';
+import { getSaveWorker } from '@/workers/saveWorkerProxy';
 
 export class MainScene extends Scene {
   private tilemapController!: TilemapController;
@@ -16,6 +15,7 @@ export class MainScene extends Scene {
   // @ts-expect-error - контроллер не используется напрямую, но необходим для управления тайлами
   private tileController!: TileController;
   // private tilemapStreamingController!: TilemapController;
+  // @ts-expect-error - контроллер не используется напрямую, но необходим для управления тайлами
   private tilemapStreamingTimer?: Time.TimerEvent;
 
   constructor() {
@@ -40,51 +40,47 @@ export class MainScene extends Scene {
     this.tileController = new TileController({
       camera,
       input,
-      gridRenderer: this.tilemapController,
+      tilemapController: this.tilemapController,
     });
     if (input.keyboard) registerUIKeyboardBindings(input.keyboard);
 
-    this.tilemapStreamingTimer = this.time.addEvent({
-      delay: this.tilemapController.getAvgTileGenTime(),
-      callback: async () => {
-        await this.tilemapController.reloadLayerOnCameraShift();
-        const delay = this.tilemapController.getAvgTileGenTime();
+    // this.tilemapStreamingTimer = this.time.addEvent({
+    //   delay: this.tilemapController.getAvgTileGenTime(),
+    //   callback: async () => {
+    //     await this.tilemapController.reloadLayerOnCameraShift();
+    //     const delay = this.tilemapController.getAvgTileGenTime();
 
-        this.tilemapStreamingTimer?.reset({
-          delay,
-          callback: this.tilemapStreamingTimer.callback,
-        });
-      },
-    });
+    //     this.tilemapStreamingTimer?.reset({
+    //       delay,
+    //       callback: this.tilemapStreamingTimer.callback,
+    //     });
+    //   },
+    // });
   }
 
   update(time: number, delta: number) {
     super.update(time, delta);
     this.cameraMoveController.handleMovement(delta);
-
-    const { main: camera } = this.cameras;
-    const uiStore = useUIStore();
-    this.tilemapController.renderGrid(camera, uiStore.showGrid);
   }
 }
 
 class TileController {
   private readonly camera: Cameras.Scene2D.Camera;
   private readonly input: Input.InputPlugin;
-  private readonly gridRenderer: TilemapController;
+  private readonly tilemapController: TilemapController;
 
   constructor({
     camera,
     input,
-    gridRenderer,
+    tilemapController,
   }: {
     camera: Cameras.Scene2D.Camera;
     input: Input.InputPlugin;
-    gridRenderer: TilemapController;
+    tilemapController: TilemapController;
   }) {
     this.camera = camera;
     this.input = input;
-    this.gridRenderer = gridRenderer;
+    this.tilemapController = tilemapController;
 
     // Регистрируем обработчики кликов мыши
     this.input.on('pointerdown', (pointer: Input.Pointer) => {
@@ -98,44 +94,24 @@ class TileController {
     });
   }
 
-  private placeTile(pointer: Input.Pointer) {
-    const levelStore = useLevelStore();
-    const levelIndex = levelStore.currentLevelIndex;
-    if (levelIndex < 0 || levelIndex >= levelStore.levels.length) return;
-
+  private async placeTile(pointer: Input.Pointer) {
     // Конвертируем позицию клика в координаты тайла
     const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
-    const tileX = Math.floor(worldPoint.x / TILE_SIZE);
-    const tileY = Math.floor(worldPoint.y / TILE_SIZE);
+    const x = Math.floor(worldPoint.x / TILE_SIZE);
+    const y = Math.floor(worldPoint.y / TILE_SIZE);
 
-    // Размещаем тайл
     const toolbarStore = useToolbarStore();
-
-    // const { type: currentType } = level.tiles.get(tileKey(x, y)) ?? DEFAULT_TILE;
-    // if (currentType === 'empty' && tile.type !== 'empty' && !hasNonEmptyNeighbor(level, x, y)) return false;
-
-    const success = levelStore.setTile(levelIndex, tileX, tileY, { type: toolbarStore.activeTile });
-    if (!success) return;
-
-    // Обновляем визуальное представление тайла
-    const tile = levelStore.getTile(levelIndex, tileX, tileY);
-    if (tile) this.gridRenderer.updateTile(tileX, tileY, tile);
+    const tile = { type: toolbarStore.activeTile } as const;
+    this.tilemapController.updateTile(x, y, tile);
+    await getSaveWorker().setTile({ x, y, tile });
   }
 
   private eyedropperTool(pointer: Input.Pointer) {
-    const levelStore = useLevelStore();
-    const levelIndex = levelStore.currentLevelIndex;
-    if (levelIndex < 0 || levelIndex >= levelStore.levels.length) return;
-
-    // Конвертируем позицию клика в координаты тайла
-    const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
-    const tileX = Math.floor(worldPoint.x / TILE_SIZE);
-    const tileY = Math.floor(worldPoint.y / TILE_SIZE);
-
-    const tile = levelStore.getTile(levelIndex, tileX, tileY);
-    if (!tile) return;
-
-    useToolbarStore().setActiveTile(tile.type);
+    const { x: worldX, y: worldY } = this.camera.getWorldPoint(pointer.x, pointer.y);
+    const { index } = this.tilemapController.getTileAtWorld({ worldX, worldY });
+    const type = TILE_KEYS[index as keyof typeof TILE_KEYS];
+    if (!type) return;
+    useToolbarStore().setActiveTile(type);
   }
 }
 
@@ -241,11 +217,5 @@ function registerUIKeyboardBindings(keyboard: Input.Keyboard.KeyboardPlugin) {
   keyboard.on('keydown-THREE', () => {
     const toolbarStore = useToolbarStore();
     toolbarStore.setActiveTile('unlinkedPortal');
-  });
-
-  // G - toggle сетки
-  keyboard.on('keydown-G', () => {
-    const uiStore = useUIStore();
-    uiStore.toggleGrid();
   });
 }
