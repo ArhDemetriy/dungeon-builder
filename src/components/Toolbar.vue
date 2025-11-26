@@ -2,10 +2,8 @@
 import clsx from 'clsx';
 
 import { useToolbarStore } from '@/store/toolbarStore';
-import { useUIStore } from '@/store/uiStore';
 
 const toolbarStore = useToolbarStore();
-const uiStore = useUIStore();
 </script>
 
 <template>
@@ -82,36 +80,6 @@ const uiStore = useUIStore();
       >
       <div class="h-6 w-6 border border-yellow-500 bg-gray-600" />
       <span class="text-xs text-gray-400">3</span>
-    </label>
-
-    <!-- Разделитель -->
-    <div class="w-px bg-gray-700" />
-
-    <!-- Toggle сетки -->
-    <label
-      :class="
-        clsx(
-          'cursor-pointer rounded border-2 px-4 py-2 transition-all',
-          uiStore.showGrid
-            ? 'border-blue-400 bg-blue-600 shadow-inner'
-            : 'border-transparent bg-gray-800 hover:bg-gray-700'
-        )
-      "
-      title="Toggle Grid (G)"
-    >
-      <input
-        type="checkbox"
-        class="sr-only"
-        :checked="uiStore.showGrid"
-        @change="uiStore.toggleGrid()"
-      >
-      <svg
-        class="h-6 w-6 text-white"
-        fill="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path d="M3 3v8h8V3H3zm0 10v8h8v-8H3zm10-10v8h8V3h-8zm0 10v8h8v-8h-8z" />
-      </svg>
     </label>
   </div>
 </template>

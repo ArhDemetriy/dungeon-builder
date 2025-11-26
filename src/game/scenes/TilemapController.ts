@@ -1,19 +1,10 @@
-import type { Cameras, GameObjects, Scene, Tilemaps } from 'phaser';
+import type { Cameras, Scene, Tilemaps } from 'phaser';
 
-import {
-  CAMERA_CONFIG,
-  DEFAULT_TILE,
-  GRID_CONFIG,
-  TILE_INDEX,
-  TILE_SIZE,
-  TILE_SPACING,
-  TILE_TEXTURE_KEY,
-} from '@/game/constants';
-import { useLevelStore } from '@/store/levelStore';
+import { CAMERA_CONFIG, TILE_INDEX, TILE_SIZE, TILE_SPACING, TILE_TEXTURE_KEY } from '@/game/constants';
 import type { GridTile } from '@/types/level';
+import { getSaveWorker } from '@/workers/saveWorkerProxy';
 
 export class TilemapController {
-  private readonly gridGraphics: GameObjects.Graphics;
   private readonly offsetTiles = { X: 0, Y: 0 };
   private readonly scene: Scene;
   private readonly tilemap: Tilemaps.Tilemap;
@@ -45,9 +36,10 @@ export class TilemapController {
 
     this.tileLayers = [layer0, layer1];
     this.centerLayerOnCamera();
+  }
 
-    // Graphics для сетки
-    this.gridGraphics = scene.add.graphics();
+  getTileAtWorld({ worldX, worldY }: { worldX: number; worldY: number }) {
+    return this.getActiveLayer().getTileAtWorldXY(worldX, worldY);
   }
 
   private static getTilemapSize(camera: Cameras.Scene2D.Camera) {
@@ -56,31 +48,23 @@ export class TilemapController {
     return { widthAtTiles: Math.ceil(k * camera.width), heightAtTiles: Math.ceil(k * camera.height) };
   }
 
-  private centerLayerOnCamera() {
-    const { X, Y, tileLayerData } = (() => {
-      const { width: widthTiles, height: heightTiles } = this.tilemap;
-      const { centerX, centerY } = this.scene.cameras.main;
-      const X = Math.round((centerX - (widthTiles * TILE_SIZE) / 2) / TILE_SIZE);
-      const Y = Math.round((centerY - (heightTiles * TILE_SIZE) / 2) / TILE_SIZE);
+  private async centerLayerOnCamera() {
+    const { width: widthTiles, height: heightTiles } = this.tilemap;
+    const { centerX, centerY } = this.scene.cameras.main;
+    const X = Math.round((centerX - (widthTiles * TILE_SIZE) / 2) / TILE_SIZE);
+    const Y = Math.round((centerY - (heightTiles * TILE_SIZE) / 2) / TILE_SIZE);
 
-      const tileLayerData = TilemapController.buildTileLayerData({
-        widthTiles,
-        heightTiles,
-        offsetTilesX: X,
-        offsetTilesY: Y,
-      });
-
-      return {
-        X,
-        Y,
-        tileLayerData,
-      };
-    })();
+    const tileLayerData = await getSaveWorker().getTileLayerData({
+      widthTiles,
+      heightTiles,
+      offsetTilesX: X,
+      offsetTilesY: Y,
+    });
 
     this.updateLayer({ X, Y, tileLayerData });
   }
 
-  reloadLayerOnCameraShift() {
+  async reloadLayerOnCameraShift() {
     const shift = this.checkCameraPosition();
     if (!shift) return;
     const startTime = performance.now();
@@ -99,15 +83,18 @@ export class TilemapController {
         : shift.y < 0
           ? Math.round(bottom / TILE_SIZE) + 2 - height
           : Math.round(this.getActiveLayer().y / TILE_SIZE);
+
+    const tileLayerData = await getSaveWorker().getTileLayerData({
+      widthTiles: width,
+      heightTiles: height,
+      offsetTilesX,
+      offsetTilesY,
+    });
+
     this.updateLayer({
       X: offsetTilesX * TILE_SIZE,
       Y: offsetTilesY * TILE_SIZE,
-      tileLayerData: TilemapController.buildTileLayerData({
-        widthTiles: width,
-        heightTiles: height,
-        offsetTilesX,
-        offsetTilesY,
-      }),
+      tileLayerData,
     });
 
     this.setAvgTileGenTime(performance.now() - startTime);
@@ -152,55 +139,5 @@ export class TilemapController {
     const tileIndex = TILE_INDEX[type];
     if (tileIndex === undefined) return;
     this.getActiveLayer().putTileAt(tileIndex, x - this.offsetTiles.X, y - this.offsetTiles.Y);
-  }
-
-  renderGrid(camera: Cameras.Scene2D.Camera, showGrid: boolean) {
-    if (!showGrid) {
-      this.gridGraphics.clear();
-      return;
-    }
-
-    // Получаем границы видимой области камеры
-    const { left, right, top, bottom } = camera.worldView;
-    const startTileX = Math.floor(left / TILE_SIZE) - 1;
-    const endTileX = Math.ceil(right / TILE_SIZE) + 1;
-    const startTileY = Math.floor(top / TILE_SIZE) - 1;
-    const endTileY = Math.ceil(bottom / TILE_SIZE) + 1;
-
-    this.gridGraphics.clear();
-    this.gridGraphics.lineStyle(1, GRID_CONFIG.color, GRID_CONFIG.alpha);
-
-    // Вертикальные линии
-    for (let x = startTileX; x <= endTileX; x++) {
-      const worldX = x * TILE_SIZE;
-      this.gridGraphics.lineBetween(worldX, startTileY * TILE_SIZE, worldX, endTileY * TILE_SIZE);
-    }
-
-    // Горизонтальные линии
-    for (let y = startTileY; y <= endTileY; y++) {
-      const worldY = y * TILE_SIZE;
-      this.gridGraphics.lineBetween(startTileX * TILE_SIZE, worldY, endTileX * TILE_SIZE, worldY);
-    }
-  }
-  private static buildTileLayerData({
-    widthTiles,
-    heightTiles,
-    offsetTilesX,
-    offsetTilesY,
-  }: {
-    widthTiles: number;
-    heightTiles: number;
-    offsetTilesX: number;
-    offsetTilesY: number;
-  }) {
-    const levelStore = useLevelStore();
-    const getTile = levelStore.getTile.bind(levelStore);
-    const { currentLevelIndex } = levelStore;
-    return Array.from({ length: heightTiles }, (_, y) =>
-      Array.from(
-        { length: widthTiles },
-        (_, x) => TILE_INDEX[(getTile(currentLevelIndex, x + offsetTilesX, y + offsetTilesY) ?? DEFAULT_TILE).type]
-      )
-    );
   }
 }

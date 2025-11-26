@@ -1,8 +1,8 @@
 import { Scene } from 'phaser';
 
 import { TILE_COLORS, TILE_SIZE, TILE_SPACING, TILE_TEXTURE_KEY } from '@/game/constants';
-import { useLevelStore } from '@/store/levelStore';
-import { tileKey } from '@/types/level';
+import type { GridTile } from '@/types/level';
+import { getSaveWorker } from '@/workers/saveWorkerProxy';
 
 export class PreloadScene extends Scene {
   constructor() {
@@ -10,30 +10,6 @@ export class PreloadScene extends Scene {
   }
 
   preload() {
-    // Создаём текстуру для тайлов
-    this.createTileTexture();
-  }
-
-  create() {
-    // Инициализация игрового состояния
-    const levelStore = useLevelStore();
-    if (!levelStore.levels.length) {
-      levelStore.addLevelAtEnd({
-        name: 'Уровень 1',
-        tiles: new Map(
-          Array.from({ length: 5 }, (_, i) => i - 2).flatMap(x =>
-            Array.from({ length: 5 }, (_, i) => i - 2).map(y => [tileKey(x, y), { type: 'floor' as const }] as const)
-          )
-        ),
-        metadata: {},
-      });
-    }
-
-    // Переключаемся на главную сцену
-    this.scene.start('MainScene');
-  }
-
-  private createTileTexture() {
     const colors = [
       `#${TILE_COLORS.empty.toString(16).padStart(6, '0')}`,
       `#${TILE_COLORS.wall.toString(16).padStart(6, '0')}`,
@@ -50,5 +26,25 @@ export class PreloadScene extends Scene {
       ctx.fillRect((TILE_SIZE + TILE_SPACING) * index, 0, TILE_SIZE, TILE_SIZE);
     });
     texture.refresh();
+  }
+
+  create() {
+    const worker = getSaveWorker();
+    worker
+      .loadFromStorage()
+      .then(() => worker.getTilesCountInLevel())
+      .then(tilesCount => {
+        if (tilesCount) return;
+        return worker.setTiles({
+          tiles: Array.from({ length: 5 }, (_, i) => i - 2).flatMap(x =>
+            Array.from({ length: 5 }, (_, i) => ({
+              x,
+              y: i - 2,
+              tile: { type: 'floor' } satisfies GridTile,
+            }))
+          ),
+        });
+      })
+      .then(() => this.scene.start('MainScene'));
   }
 }
