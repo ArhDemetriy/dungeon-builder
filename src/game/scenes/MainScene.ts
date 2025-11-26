@@ -101,7 +101,6 @@ class TileController {
 
     const toolbarStore = useToolbarStore();
     const tile = { type: toolbarStore.activeTile } as const;
-    console.log('placeTile', { x, y, tile });
     this.tilemapController.updateTile(x, y, tile);
     const worker = getSaveWorker();
     const success = await worker.setTile({ x, y, tile });
