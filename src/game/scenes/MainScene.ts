@@ -43,18 +43,18 @@ export class MainScene extends Scene {
     });
     if (input.keyboard) registerUIKeyboardBindings(input.keyboard);
 
-    this.tilemapStreamingTimer = this.time.addEvent({
-      delay: this.tilemapController.getAvgTileGenTime(),
-      callback: async () => {
-        await this.tilemapController.reloadLayerOnCameraShift();
-        const delay = this.tilemapController.getAvgTileGenTime();
+    // this.tilemapStreamingTimer = this.time.addEvent({
+    //   delay: this.tilemapController.getAvgTileGenTime(),
+    //   callback: async () => {
+    //     await this.tilemapController.reloadLayerOnCameraShift();
+    //     const delay = this.tilemapController.getAvgTileGenTime();
 
-        this.tilemapStreamingTimer?.reset({
-          delay,
-          callback: this.tilemapStreamingTimer.callback,
-        });
-      },
-    });
+    //     this.tilemapStreamingTimer?.reset({
+    //       delay,
+    //       callback: this.tilemapStreamingTimer.callback,
+    //     });
+    //   },
+    // });
   }
 
   update(time: number, delta: number) {
@@ -101,6 +101,7 @@ class TileController {
 
     const toolbarStore = useToolbarStore();
     const tile = { type: toolbarStore.activeTile } as const;
+    console.log('placeTile', { x, y, tile });
     this.tilemapController.updateTile(x, y, tile);
     const worker = getSaveWorker();
     const success = await worker.setTile({ x, y, tile });

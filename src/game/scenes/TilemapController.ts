@@ -92,8 +92,8 @@ export class TilemapController {
     });
 
     this.updateLayer({
-      X: offsetTilesX * TILE_SIZE,
-      Y: offsetTilesY * TILE_SIZE,
+      X: offsetTilesX,
+      Y: offsetTilesY,
       tileLayerData,
     });
 
@@ -124,11 +124,23 @@ export class TilemapController {
   }
 
   private updateLayer({ X, Y, tileLayerData }: { X: number; Y: number; tileLayerData: number[][] }) {
-    this.tileLayers[1].setVisible(false).setPosition(X, Y).putTilesAt(tileLayerData, 0, 0).setVisible(true);
+    console.log('updateLayer', {
+      X,
+      Y,
+      tileLayerData: tileLayerData.map(row => row.filter(tileIndex => tileIndex > 0)).filter(row => row.length),
+    });
+
+    this.tileLayers[1]
+      .setActive(false)
+      .setVisible(false)
+      .setPosition(X, Y)
+      .putTilesAt(tileLayerData, 0, 0)
+      .setVisible(true)
+      .setActive(true);
     this.tileLayers.reverse();
     this.offsetTiles.X = X;
     this.offsetTiles.Y = Y;
-    this.tileLayers[1].setVisible(false);
+    this.tileLayers[1].setActive(false).setVisible(false);
   }
 
   private getActiveLayer() {
@@ -138,6 +150,8 @@ export class TilemapController {
   updateTile(x: number, y: number, { type }: GridTile) {
     const tileIndex = TILE_INDEX[type];
     if (tileIndex === undefined) return;
+    console.log('updateTile', { tileIndex, x: x - this.offsetTiles.X, y: y - this.offsetTiles.Y });
+
     this.getActiveLayer().putTileAt(tileIndex, x - this.offsetTiles.X, y - this.offsetTiles.Y);
   }
 }
