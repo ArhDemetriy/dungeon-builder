@@ -31,7 +31,7 @@ export class PreloadScene extends Scene {
   create() {
     const worker = getSaveWorker();
     worker
-      .loadFromStorage()
+      .waitForReady()
       .then(() => worker.getTilesCountInLevel())
       .then(tilesCount => {
         if (tilesCount) return;

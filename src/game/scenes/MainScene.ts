@@ -1,7 +1,7 @@
 import { debounce } from 'lodash-es';
 import { type Cameras, Input, Scene, type Time } from 'phaser';
 
-import { CAMERA_CONFIG, DEFAULT_TILE, MOVEMENT_CONFIG, TILE_KEYS, TILE_SIZE } from '@/game/constants';
+import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_KEYS, TILE_SIZE } from '@/game/constants';
 import { TilemapController } from '@/game/scenes/TilemapController';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
 import { useToolbarStore } from '@/store/toolbarStore';
@@ -15,6 +15,7 @@ export class MainScene extends Scene {
   // @ts-expect-error - контроллер не используется напрямую, но необходим для управления тайлами
   private tileController!: TileController;
   // private tilemapStreamingController!: TilemapController;
+  // @ts-expect-error - контроллер не используется напрямую, но необходим для управления тайлами
   private tilemapStreamingTimer?: Time.TimerEvent;
 
   constructor() {
@@ -102,13 +103,7 @@ class TileController {
     const toolbarStore = useToolbarStore();
     const tile = { type: toolbarStore.activeTile } as const;
     this.tilemapController.updateTile(x, y, tile);
-    const worker = getSaveWorker();
-    const success = await worker.setTile({ x, y, tile });
-    if (success) return;
-    void worker.getTile({ x, y }).then((tileFromSave = DEFAULT_TILE) => {
-      if (tile.type === tileFromSave.type) return;
-      this.tilemapController.updateTile(x, y, tileFromSave);
-    });
+    await getSaveWorker().setTile({ x, y, tile });
   }
 
   private eyedropperTool(pointer: Input.Pointer) {
