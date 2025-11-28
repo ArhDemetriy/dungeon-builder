@@ -1,5 +1,5 @@
 import { debounce } from 'lodash-es';
-import { type Cameras, Input, Scene, type Time } from 'phaser';
+import { type Cameras, Input, Scene } from 'phaser';
 
 import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_KEYS, TILE_SIZE } from '@/game/constants';
 import { TilemapController } from '@/game/scenes/TilemapController';
@@ -14,9 +14,6 @@ export class MainScene extends Scene {
   private cameraMoveController!: CameraMoveController;
   // @ts-expect-error - контроллер не используется напрямую, но необходим для управления тайлами
   private tileController!: TileController;
-  // private tilemapStreamingController!: TilemapController;
-  // @ts-expect-error - контроллер не используется напрямую, но необходим для управления тайлами
-  private tilemapStreamingTimer?: Time.TimerEvent;
 
   constructor() {
     super({ key: 'MainScene' });
@@ -44,23 +41,26 @@ export class MainScene extends Scene {
     });
     if (input.keyboard) registerUIKeyboardBindings(input.keyboard);
 
-    // this.tilemapStreamingTimer = this.time.addEvent({
-    //   delay: this.tilemapController.getAvgTileGenTime(),
-    //   callback: async () => {
-    //     await this.tilemapController.reloadLayerOnCameraShift();
-    //     const delay = this.tilemapController.getAvgTileGenTime();
-
-    //     this.tilemapStreamingTimer?.reset({
-    //       delay,
-    //       callback: this.tilemapStreamingTimer.callback,
-    //     });
-    //   },
-    // });
+    // TilemapController теперь автономен — Motion Timer запускается в конструкторе
+    // и работает независимо от update()
   }
 
   update(time: number, delta: number) {
     super.update(time, delta);
+
+    // Fast Path — 80% кадров камера внутри Safe Zone
+    // Motion Timer работает независимо от update()
+    // isCameraInSafeZone() можно использовать для оптимизации других систем при необходимости
+
     this.cameraMoveController.handleMovement(delta);
+  }
+
+  /**
+   * Освобождает ресурсы при уничтожении сцены.
+   * Вызывается Phaser при shutdown/destroy сцены.
+   */
+  shutdown() {
+    this.tilemapController?.destroy();
   }
 }
 
