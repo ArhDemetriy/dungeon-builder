@@ -143,17 +143,16 @@ class CameraMoveController {
       const { up, down, left, right } = this.cursorKeys;
       const x = (left?.isDown ? -1 : 0) + (right?.isDown ? 1 : 0);
       const y = (up?.isDown ? -1 : 0) + (down?.isDown ? 1 : 0);
-      const moved = x || y;
-      if (moved) {
-        const isDiagonal = x && y;
-        const cosPI4 = 0.7071067811865476;
-        const move = Math.round(
-          delta * CAMERA_CONFIG.moveSpeed * (isDiagonal ? cosPI4 : 1) * (CAMERA_CONFIG.maxZoom / this.camera.zoom)
-        );
-        if (x) this.camera.scrollX += x * move;
-        if (y) this.camera.scrollY += y * move;
-        CameraMoveController.debouncedSavePosition(this.camera.scrollX, this.camera.scrollY);
-      }
+      if (!(x || y)) return;
+
+      const isDiagonal = x && y;
+      const cosPI4 = 0.7071067811865476;
+      const move = Math.round(
+        delta * CAMERA_CONFIG.moveSpeed * (isDiagonal ? cosPI4 : 1) * (CAMERA_CONFIG.maxZoom / this.camera.zoom)
+      );
+      if (x) this.camera.scrollX = Math.round(this.camera.scrollX + x * move);
+      if (y) this.camera.scrollY = Math.round(this.camera.scrollY + y * move);
+      CameraMoveController.debouncedSavePosition(this.camera.scrollX, this.camera.scrollY);
     }
   }
 
