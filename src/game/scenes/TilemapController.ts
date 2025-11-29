@@ -5,6 +5,7 @@ import {
   CAMERA_CONFIG,
   TILEMAP_STREAMING_CONFIG,
   TILE_INDEX,
+  TILE_MARGIN,
   TILE_SIZE,
   TILE_SPACING,
   TILE_TEXTURE_KEY,
@@ -60,7 +61,26 @@ export class TilemapController {
     }));
 
     const tilesetKey = 'tiles';
-    tilemap.addTilesetImage(tilesetKey, TILE_TEXTURE_KEY, TILE_SIZE, TILE_SIZE, 0, TILE_SPACING);
+    const tileset = tilemap.addTilesetImage(
+      tilesetKey,
+      TILE_TEXTURE_KEY,
+      TILE_SIZE,
+      TILE_SIZE,
+      TILE_MARGIN,
+      TILE_SPACING
+    );
+
+    // DEBUG: информация о tileset
+    console.log('[Tileset Debug]', {
+      tileset,
+      tilesetTotal: tileset?.total,
+      tilesetFirstgid: tileset?.firstgid,
+      tilesetColumns: tileset?.columns,
+      tilesetRows: tileset?.rows,
+      tilemapTiles: tilemap.tiles,
+      tilemapTilesLength: tilemap.tiles?.length,
+      textureSource: this.scene.textures.get(TILE_TEXTURE_KEY).getSourceImage(),
+    });
 
     const layer0 = tilemap.createBlankLayer('layer0', tilesetKey);
     const layer1 = tilemap.createBlankLayer('layer1', tilesetKey);
@@ -393,6 +413,11 @@ export class TilemapController {
    * @param data.X, data.Y — координаты в тайлах (умножаем на TILE_SIZE для пикселей)
    */
   private applyLayerData(data: { X: number; Y: number; tileLayerData: number[][] }): void {
+    console.log(
+      'Tile indices:',
+      data.tileLayerData.flat().filter((v, i, a) => a.indexOf(v) === i)
+    );
+
     this.tileLayers[1]
       .setVisible(false)
       .setPosition(data.X * TILE_SIZE, data.Y * TILE_SIZE)

@@ -207,14 +207,14 @@ function registerUIKeyboardBindings(keyboard: Input.Keyboard.KeyboardPlugin) {
   // Клавиши 1/2/3 - выбор тайла
   keyboard.on('keydown-ONE', () => {
     const toolbarStore = useToolbarStore();
-    toolbarStore.setActiveTile('wall');
+    toolbarStore.setActiveTile('grass0');
   });
   keyboard.on('keydown-TWO', () => {
     const toolbarStore = useToolbarStore();
-    toolbarStore.setActiveTile('floor');
+    toolbarStore.setActiveTile('grass1');
   });
-  keyboard.on('keydown-THREE', () => {
-    const toolbarStore = useToolbarStore();
-    toolbarStore.setActiveTile('unlinkedPortal');
-  });
+  // keyboard.on('keydown-THREE', () => {
+  //   const toolbarStore = useToolbarStore();
+  //   toolbarStore.setActiveTile('grass1');
+  // });
 }

@@ -1,6 +1,6 @@
 import { Scene } from 'phaser';
 
-import { TILE_COLORS, TILE_SIZE, TILE_SPACING, TILE_TEXTURE_KEY } from '@/game/constants';
+import { TILE_MARGIN, TILE_SIZE, TILE_SPACING, TILE_TEXTURE_KEY } from '@/game/constants';
 import type { GridTile } from '@/types/level';
 import { getSaveWorker } from '@/workers/saveWorkerProxy';
 
@@ -10,22 +10,12 @@ export class PreloadScene extends Scene {
   }
 
   preload() {
-    const colors = [
-      `#${TILE_COLORS.empty.toString(16).padStart(6, '0')}`,
-      `#${TILE_COLORS.wall.toString(16).padStart(6, '0')}`,
-      `#${TILE_COLORS.floor.toString(16).padStart(6, '0')}`,
-      `#${TILE_COLORS.unlinkedPortal.toString(16).padStart(6, '0')}`,
-    ];
-
-    const textureWidth = (TILE_SIZE + TILE_SPACING) * colors.length;
-    const texture = this.textures.createCanvas(TILE_TEXTURE_KEY, textureWidth, TILE_SIZE);
-    if (!texture) return;
-    const ctx = texture.getContext();
-    colors.forEach((fillStyle, index) => {
-      ctx.fillStyle = fillStyle;
-      ctx.fillRect((TILE_SIZE + TILE_SPACING) * index, 0, TILE_SIZE, TILE_SIZE);
+    this.load.spritesheet(TILE_TEXTURE_KEY, '/public/grass.png', {
+      frameWidth: TILE_SIZE,
+      frameHeight: TILE_SIZE,
+      spacing: TILE_SPACING,
+      margin: TILE_MARGIN,
     });
-    texture.refresh();
   }
 
   create() {
@@ -40,7 +30,7 @@ export class PreloadScene extends Scene {
             Array.from({ length: 5 }, (_, i) => ({
               x,
               y: i - 2,
-              tile: { type: 'floor' } satisfies GridTile,
+              tile: { type: 'grass0' } satisfies GridTile,
             }))
           ),
         });

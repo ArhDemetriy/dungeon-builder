@@ -1,5 +1,5 @@
 export interface PrimitiveTile {
-  type: 'empty' | 'wall' | 'floor' | 'unlinkedPortal';
+  type: 'grass0' | 'grass1';
 }
 
 export type GridTile = PrimitiveTile;

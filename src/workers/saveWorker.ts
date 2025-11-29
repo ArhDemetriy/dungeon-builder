@@ -2,7 +2,7 @@ import { expose } from 'comlink';
 import { type DBSchema, openDB } from 'idb';
 import { throttle } from 'lodash-es';
 
-import { DEFAULT_TILE, SAVE_CONFIG, TILE_INDEX } from '@/game/constants';
+import { SAVE_CONFIG, TILE_INDEX } from '@/game/constants';
 import type { GridTile } from '@/types/level';
 
 export type SaveWorkerApi = typeof api;
@@ -127,7 +127,7 @@ const api = {
     return Array.from({ length: heightTiles }, (_, y) =>
       Array.from(
         { length: widthTiles },
-        (_, x) => TILE_INDEX[(levelMap.get(tileKey(x + offsetTilesX, y + offsetTilesY)) ?? DEFAULT_TILE).type]
+        (_, x) => TILE_INDEX[levelMap.get(tileKey(x + offsetTilesX, y + offsetTilesY))?.type ?? 'grass0']
       )
     );
   },

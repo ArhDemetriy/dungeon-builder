@@ -1,30 +1,22 @@
-import type { PrimitiveTile } from '@/types/level';
-
-export const TILE_SIZE = 32;
-export const TILE_SPACING = 2;
+export const TILE_SIZE = 64;
+export const TILE_SPACING = 0;
+export const TILE_MARGIN = 2;
 
 export const TILE_COLORS = {
   empty: 0x000000,
-  wall: 0x1a1a1a,
-  floor: 0x8b7355,
-  unlinkedPortal: 0x666666,
+  grass0: 0x1a1a1a,
+  grass1: 0x8b7355,
 } as const;
 
 export const TILE_TEXTURE_KEY = 'tiles';
 
-export const DEFAULT_TILE = { type: 'empty' } satisfies PrimitiveTile;
-
 export const TILE_INDEX = {
-  empty: 0,
-  wall: 1,
-  floor: 2,
-  unlinkedPortal: 3,
+  grass0: 0,
+  grass1: 1,
 } as const;
 export const TILE_KEYS = {
-  0: 'empty',
-  1: 'wall',
-  2: 'floor',
-  3: 'unlinkedPortal',
+  0: 'grass0',
+  1: 'grass1',
 } as const;
 
 export const GRID_CONFIG = {
