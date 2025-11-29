@@ -135,7 +135,7 @@ export class TilemapController {
    *
    * АЛГОРИТМ:
    * 1. Мгновенная скорость = (pos - lastPos) / deltaTime
-   * 2. EMA: newVel = oldVel * alpha + instantVel * (1 - alpha)
+   * 2. EMA: newVel = oldVel * α + instantVel * (1 - α)
    * 3. Ускорение = (newVel - oldVel) / deltaTime
    *
    * ГРАНИЧНЫЕ СЛУЧАИ:
@@ -144,8 +144,8 @@ export class TilemapController {
    * - NaN/Infinity в позиции → пропуск
    *
    * ВЗАИМОДЕЙСТВИЕ:
-   * - Вызывается из onMotionCheck() каждые 50-200мс
-   * - Результат используется в predictCameraPosition()
+   * - Вызывается из callback motionTimer каждые 50-200мс
+   * - Результат используется в predictLayerNeed()
    */
   private updateVelocityAndAcceleration() {
     const { centerX, centerY } = this.scene.cameras.main;
@@ -212,17 +212,18 @@ export class TilemapController {
    * Определяет, нужен ли новый слой на основе предсказания.
    *
    * ЛОГИКА:
-   * 1. Предсказываем позицию через PREDICTION_TIME
-   * 2. Если за пределами слоя → нужен новый
-   * 3. Если близко к краю в направлении движения → нужен новый
+   * 1. Если камера остановлена → scheduleCenterOnStop() и выход
+   * 2. Предсказываем позицию через predictionTime (квадратичная экстраполяция)
+   * 3. Если за пределами слоя → нужен новый
+   * 4. Если близко к краю в направлении движения → нужен новый
    *
    * АДАПТИВНЫЕ ГРАНИЦЫ:
-   * - При горизонтальном движении: aggressive (50%) по X, base (33%) по Y
-   * - При диагональном: base по обеим осям
+   * - При доминирующем направлении: aggressiveThreshold (50%)
+   * - При диагональном: baseThreshold (33%) по обеим осям
    *
    * ВОЗВРАТ:
-   * - null → слой не нужен
-   * - { direction } → нужен слой в указанном направлении
+   * - undefined → слой не нужен (или камера остановлена)
+   * - DirectionVector → нужен слой в указанном направлении
    */
   private predictLayerNeed() {
     if (this.isCameraStopped()) {
