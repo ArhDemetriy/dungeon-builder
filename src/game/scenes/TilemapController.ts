@@ -1,6 +1,5 @@
 import { isEqual } from 'lodash-es';
-import Phaser from 'phaser';
-import type { Cameras, Geom, Scene, Tilemaps, Time } from 'phaser';
+import { type Cameras, Geom, Math as PMath, type Scene, type Tilemaps, type Time } from 'phaser';
 
 import {
   CAMERA_CONFIG,
@@ -27,7 +26,7 @@ export class TilemapController {
 
   // === Safe Zone ===
   // Прямоугольник в центре слоя — камера внутри = Fast Path (нет проверок)
-  private readonly dynamicSafeZone = new Phaser.Geom.Rectangle(0, 0, 0, 0);
+  private readonly dynamicSafeZone = new Geom.Rectangle(0, 0, 0, 0);
 
   // === Velocity Tracking ===
   // EMA-сглаженная скорость и ускорение для предсказания траектории
@@ -182,6 +181,7 @@ export class TilemapController {
 
     const now = performance.now();
     const deltaTime = now - this.velocityState.lastUpdateTime;
+
     // Защита от аномалий времени (пауза игры, потеря фокуса)
     if (deltaTime < 1 || deltaTime > 1000) {
       this.velocityState.lastUpdateTime = now;
@@ -190,10 +190,13 @@ export class TilemapController {
     }
 
     const { velocitySmoothing, maxSpeed, teleportThreshold } = TILEMAP_STREAMING_CONFIG;
+    const { velocity: oldVel, lastPosition } = this.velocityState;
 
-    const instantVelX = (centerX - this.velocityState.lastPosition.x) / deltaTime;
-    const instantVelY = (centerY - this.velocityState.lastPosition.y) / deltaTime;
-    const instantSpeed = Math.sqrt(instantVelX ** 2 + instantVelY ** 2);
+    const instantVel = {
+      x: (centerX - lastPosition.x) / deltaTime,
+      y: (centerY - lastPosition.y) / deltaTime,
+    };
+    const instantSpeed = Math.sqrt(instantVel.x ** 2 + instantVel.y ** 2);
 
     // Телепортация — сброс состояния и немедленное центрирование
     if (instantSpeed > teleportThreshold) {
@@ -206,25 +209,21 @@ export class TilemapController {
       return this.velocityState;
     }
 
-    // EMA сглаживание — устраняет дрожание
-    const alpha = velocitySmoothing;
-    const newVelX = this.velocityState.velocity.x * alpha + instantVelX * (1 - alpha);
-    const newVelY = this.velocityState.velocity.y * alpha + instantVelY * (1 - alpha);
-
-    // Ускорение для квадратичной экстраполяции
-    this.velocityState.acceleration = {
-      x: (newVelX - this.velocityState.velocity.x) / deltaTime,
-      y: (newVelY - this.velocityState.velocity.y) / deltaTime,
+    // EMA сглаживание: newVel = oldVel * α + instantVel * (1 - α)
+    const newVel = {
+      x: PMath.Clamp(oldVel.x * velocitySmoothing + instantVel.x * (1 - velocitySmoothing), -maxSpeed, maxSpeed),
+      y: PMath.Clamp(oldVel.y * velocitySmoothing + instantVel.y * (1 - velocitySmoothing), -maxSpeed, maxSpeed),
     };
 
-    // Clamp — защита от артефактов
-    const clampedVelX = Phaser.Math.Clamp(newVelX, -maxSpeed, maxSpeed);
-    const clampedVelY = Phaser.Math.Clamp(newVelY, -maxSpeed, maxSpeed);
-
-    this.velocityState.velocity = { x: clampedVelX, y: clampedVelY };
-    this.velocityState.speed = Math.sqrt(clampedVelX ** 2 + clampedVelY ** 2);
+    this.velocityState.acceleration = {
+      x: (newVel.x - oldVel.x) / deltaTime,
+      y: (newVel.y - oldVel.y) / deltaTime,
+    };
+    this.velocityState.velocity = newVel;
+    this.velocityState.speed = Math.sqrt(newVel.x ** 2 + newVel.y ** 2);
     this.velocityState.lastPosition = { x: centerX, y: centerY };
     this.velocityState.lastUpdateTime = now;
+
     return this.velocityState;
   }
 

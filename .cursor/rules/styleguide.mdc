@@ -1,0 +1,77 @@
+---
+alwaysApply: true
+---
+
+# Code Style Rules
+
+## TypeScript
+
+### Types
+
+- Inline types by default, separate only if used 2+ times or data models
+- NO explicit return types — use type inference
+- `satisfies` over `as` for type checking
+- `interface` for objects, `type` for unions
+- `as const` for literal objects
+
+### Imports
+
+- Named imports only, NO default exports: `import { Scene } from 'phaser'`
+- Path alias `@/*` instead of relative paths
+- `type` keyword for type imports: `import { Game, type Types } from 'phaser'`
+
+### Code Style
+
+- Destructuring in function params: `fn({ x, y }: Point)` not `fn(x: number, y: number)`
+- Destructure configs/state at method start
+- Early return (guard clauses), NO nested if
+- Nested ternaries OK with proper indentation
+- `void` prefix for ignored promises
+- `_` prefix for unused parameters
+
+### Naming
+
+- `x`, `y` — continuous values (float): velocity, direction
+- `X`, `Y` — tile coordinates (int): offsetTiles
+- `worldX`, `worldY` — explicit pixel coords
+
+## Comments
+
+### Section dividers for method groups
+
+```typescript
+// ============================================================
+// === SECTION NAME ===
+// ============================================================
+```
+
+### JSDoc sections for complex methods
+
+- **ЗАЧЕМ** — purpose
+- **АЛГОРИТМ** — how it works
+- **ГРАНИЧНЫЕ СЛУЧАИ** — edge cases
+- **ВЗАИМОДЕЙСТВИЕ** — integration with other parts
+
+## Vue
+
+- Always `<script setup lang="ts">`
+- Inline props: `defineProps<{ x: number }>()`
+
+## Pinia
+
+- Composition API style with `defineStore('name', () => {})`
+- Direct mutations OK (Pinia is mutable)
+- Map/Set for large collections
+
+## Phaser
+
+- Named imports: `import { Geom, Math as PMath } from 'phaser'`
+- Method chaining for layer operations
+- Tile coords as source of truth (int), convert to pixels by multiply
+- Tilemap for static grids (auto culling, WebGL batching)
+
+## Architecture
+
+- YAGNI — delete unused code, restore when needed
+- Map/Set for O(1) lookups instead of Array.find()
+- neverthrow for Result-based error handling

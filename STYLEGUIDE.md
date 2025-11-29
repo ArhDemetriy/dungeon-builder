@@ -78,6 +78,30 @@ function handle(error: { type: 'a' } | { type: 'b' }) {
 }
 ```
 
+## Деструктуризация
+
+### В параметрах функций
+
+```typescript
+// ✅ Config object с деструктуризацией
+function updateSafeZone({ centerX, centerY, width, height }: Geom.Rectangle) { }
+function getTileAtWorld({ worldX, worldY }: { worldX: number; worldY: number }) { }
+
+// ❌ Много позиционных параметров
+function updateSafeZone(centerX: number, centerY: number, width: number, height: number) { }
+```
+
+### В начале метода — извлечение из конфигов и состояния
+
+```typescript
+private predictLayerNeed() {
+  const { predictionTime, baseThreshold } = TILEMAP_STREAMING_CONFIG;
+  const { centerX, centerY } = this.scene.cameras.main;
+  const { velocity, acceleration, speed } = this.velocityState;
+  // ...
+}
+```
+
 ## Код стиль
 
 ### Функциональный подход
@@ -87,12 +111,118 @@ const active = tiles.filter(t => t.type !== 'empty').map(t => ({ ...t, active: t
 const newState = { ...state, levels: state.levels.map((l, i) => i === idx ? updated : l) };
 ```
 
+### Early return (Guard Clauses)
+
+```typescript
+// ✅ Early return
+private updateVelocity() {
+  if (!Number.isFinite(centerX)) return this.velocityState;
+  if (deltaTime < 1 || deltaTime > 1000) return this.velocityState;
+  // основная логика
+}
+
+// ❌ Вложенные if
+private updateVelocity() {
+  if (Number.isFinite(centerX)) {
+    if (deltaTime >= 1 && deltaTime <= 1000) {
+      // основная логика
+    }
+  }
+}
+```
+
+### Вложенные тернарные операторы
+
+Допустимы для вычисления значений с несколькими ветками. Форматируйте с отступами.
+
+```typescript
+// ✅ Читаемые вложенные тернарники
+const x: Direction =
+  Math.abs(dirX) > 0.1
+    ? dirX < 0 && predictedTile.x < edgeX
+      ? -1
+      : dirX > 0 && predictedTile.x > w - edgeX
+        ? 1
+        : 0
+    : 0;
+
+// ❌ if/else для простых вычислений
+let x: Direction = 0;
+if (Math.abs(dirX) > 0.1) {
+  if (dirX < 0 && predictedTile.x < edgeX) x = -1;
+  else if (dirX > 0 && predictedTile.x > w - edgeX) x = 1;
+}
+```
+
+### Method chaining (Phaser)
+
+```typescript
+this.tileLayers[1]
+  .setVisible(false)
+  .setPosition(x, y)
+  .putTilesAt(data, 0, 0)
+  .setVisible(true);
+```
+
+### void для игнорируемых Promise
+
+```typescript
+// ✅ Явное игнорирование результата
+void this.generateLayerData(offset).then(data => this.applyLayerData(data));
+
+// ❌ Floating promise без void
+this.generateLayerData(offset).then(data => this.applyLayerData(data));
+```
+
 ### Неиспользуемые переменные
 
 Префикс `_` для параметров которые нужны для сигнатуры.
 
 ```typescript
 function render(_timestamp: number, data: Data) { return processData(data); }
+```
+
+## Комментарии
+
+### Секционные разделители для группировки методов
+
+```typescript
+// ============================================================
+// === VELOCITY TRACKING ===
+// ============================================================
+```
+
+### JSDoc с семантическими секциями
+
+Используйте секции для сложных методов:
+
+- **ЗАЧЕМ** — цель и польза
+- **ЛОГИКА/АЛГОРИТМ** — как работает
+- **ГРАНИЧНЫЕ СЛУЧАИ** — edge cases и защита
+- **ВЗАИМОДЕЙСТВИЕ** — связь с другими частями системы
+
+```typescript
+/**
+ * Вычисляет скорость камеры с EMA сглаживанием.
+ *
+ * АЛГОРИТМ:
+ * 1. Мгновенная скорость = (pos - lastPos) / deltaTime
+ * 2. EMA: newVel = oldVel * α + instantVel * (1 - α)
+ *
+ * ГРАНИЧНЫЕ СЛУЧАИ:
+ * - deltaTime < 1ms → пропуск (защита от деления на ~0)
+ * - instantSpeed > threshold → телепортация → сброс
+ *
+ * ВЗАИМОДЕЙСТВИЕ:
+ * - Вызывается из motionTimer каждые 50-200мс
+ * - Результат используется в predictLayerNeed()
+ */
+```
+
+### Inline комментарии для неочевидной логики
+
+```typescript
+if (!this.pendingDirection || !isCenter) this.pendingDirection = direction; // center не может вытеснить movement
 ```
 
 ## Импорты
@@ -109,7 +239,7 @@ import Phaser from 'phaser';
 export default function App() { }
 ```
 
-### Алиас @/* (не относительные пути)
+### Алиас @/\* (не относительные пути)
 
 ```typescript
 // ✅ Алиас
@@ -157,9 +287,7 @@ const toolbarStore = useToolbarStore();
 </script>
 
 <template>
-  <button @click="toolbarStore.setActiveTile('wall')">
-    Wall
-  </button>
+  <button @click="toolbarStore.setActiveTile('wall')">Wall</button>
 </template>
 ```
 
@@ -239,6 +367,24 @@ export const useLevelStore = defineStore(
 ```
 
 ## Phaser
+
+### Координаты — соглашение об именовании
+
+| Формат             | Значение                     | Пример                                      |
+| ------------------ | ---------------------------- | ------------------------------------------- |
+| `x`, `y`           | непрерывные значения (float) | `velocity: { x, y }`, `direction: { x, y }` |
+| `X`, `Y`           | тайловые координаты (int)    | `offsetTiles: { X, Y }`                     |
+| `worldX`, `worldY` | пиксели (явно названы, int)  | `getTileAtWorld({ worldX, worldY })`        |
+
+```typescript
+// ✅ Тайловые координаты — источник истины (целые числа)
+const offsetTiles = { X: 10, Y: 20 };
+const worldPos = { x: offsetTiles.X * TILE_SIZE, y: offsetTiles.Y * TILE_SIZE };
+
+// ❌ Пиксели как источник истины (ошибки округления при делении)
+const worldPos = { x: 320, y: 640 };
+const tiles = { X: worldPos.x / TILE_SIZE, Y: worldPos.y / TILE_SIZE }; // может быть 9.999...
+```
 
 ### Tilemap для статичных слоев
 
