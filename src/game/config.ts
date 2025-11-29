@@ -14,4 +14,8 @@ export const gameConfig = {
     height: '100%',
     autoCenter: Scale.CENTER_HORIZONTALLY,
   },
+  render: {
+    pixelArt: false,
+    roundPixels: false,
+  },
 } satisfies Types.Core.GameConfig;
