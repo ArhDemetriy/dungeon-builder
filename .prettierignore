@@ -1,3 +1,4 @@
 .yarn
 src/swagger*
 src/routeTree.gen.ts
+*.vue

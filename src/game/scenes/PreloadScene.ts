@@ -1,7 +1,6 @@
 import { Scene } from 'phaser';
 
-import { TILE_MARGIN, TILE_SIZE, TILE_SPACING, TILE_TEXTURE_KEY } from '@/game/constants';
-import type { GridTile } from '@/types/level';
+import { TILE_INDEX, TILE_MARGIN, TILE_SIZE, TILE_SPACING, TILE_TEXTURE_KEY } from '@/game/constants';
 import { getSaveWorker } from '@/workers/saveWorkerProxy';
 
 export class PreloadScene extends Scene {
@@ -30,7 +29,7 @@ export class PreloadScene extends Scene {
             Array.from({ length: 5 }, (_, i) => ({
               x,
               y: i - 2,
-              tile: { type: 'grass0' } satisfies GridTile,
+              index: TILE_INDEX.grass0,
             }))
           ),
         });

@@ -1,7 +1,7 @@
 import { debounce } from 'lodash-es';
 import { type Cameras, Input, Scene } from 'phaser';
 
-import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_KEYS, TILE_SIZE } from '@/game/constants';
+import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_INDEX, TILE_KEYS, TILE_SIZE } from '@/game/constants';
 import { TilemapController } from '@/game/scenes/TilemapController';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
 import { useToolbarStore } from '@/store/toolbarStore';
@@ -101,9 +101,9 @@ class TileController {
     const y = Math.floor(worldPoint.y / TILE_SIZE);
 
     const toolbarStore = useToolbarStore();
-    const tile = { type: toolbarStore.activeTile } as const;
-    this.tilemapController.updateTile(x, y, tile);
-    await getSaveWorker().setTile({ x, y, tile });
+    const index = TILE_INDEX[toolbarStore.activeTile];
+    this.tilemapController.updateTile(x, y, index);
+    await getSaveWorker().setTile({ x, y, index });
   }
 
   private eyedropperTool(pointer: Input.Pointer) {

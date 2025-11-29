@@ -2,21 +2,16 @@ export const TILE_SIZE = 64;
 export const TILE_SPACING = 0;
 export const TILE_MARGIN = 2;
 
-export const TILE_COLORS = {
-  empty: 0x000000,
-  grass0: 0x1a1a1a,
-  grass1: 0x8b7355,
-} as const;
-
 export const TILE_TEXTURE_KEY = 'tiles';
 
-export const TILE_INDEX = {
-  grass0: 0,
-  grass1: 1,
-} as const;
+export type TileIndexes = keyof typeof TILE_KEYS;
 export const TILE_KEYS = {
   0: 'grass0',
   1: 'grass1',
+} as const;
+export const TILE_INDEX = {
+  grass0: 0,
+  grass1: 1,
 } as const;
 
 export const GRID_CONFIG = {

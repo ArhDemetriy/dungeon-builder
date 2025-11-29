@@ -2,8 +2,7 @@ import { expose } from 'comlink';
 import { type DBSchema, openDB } from 'idb';
 import { throttle } from 'lodash-es';
 
-import { SAVE_CONFIG, TILE_INDEX } from '@/game/constants';
-import type { GridTile } from '@/types/level';
+import { SAVE_CONFIG, type TileIndexes } from '@/game/constants';
 
 export type SaveWorkerApi = typeof api;
 
@@ -11,7 +10,7 @@ export type SaveWorkerApi = typeof api;
 interface DungeonDB extends DBSchema {
   levels: {
     key: number;
-    value: { tiles: Array<{ key: ReturnType<typeof tileKey>; tile: GridTile }> };
+    value: { tiles: Array<{ key: ReturnType<typeof tileKey>; index: TileIndexes }> };
   };
   meta: {
     key: 'state';
@@ -21,7 +20,7 @@ interface DungeonDB extends DBSchema {
 
 // Внутреннее хранилище воркера
 let currentLevelIndex = 0;
-const levels = new Map<number, Map<ReturnType<typeof tileKey>, GridTile>>();
+const levels = new Map<number, Map<ReturnType<typeof tileKey>, TileIndexes>>();
 const dirtyLevels = new Set<number>();
 
 // Автоинициализация при загрузке модуля
@@ -35,7 +34,7 @@ const dungeonDB = (async () => {
 
   currentLevelIndex = (await db.get('meta', 'state'))?.currentLevelIndex ?? 0;
   const data = await db.get('levels', currentLevelIndex);
-  if (data) levels.set(currentLevelIndex, new Map(data.tiles.map(({ key, tile }) => [key, tile])));
+  if (data) levels.set(currentLevelIndex, new Map(data.tiles.map(({ key, index }) => [key, index])));
   else levels.set(currentLevelIndex, new Map());
 
   return db;
@@ -46,7 +45,7 @@ const loadLevelFromDB = async (levelIndex: number) =>
   dungeonDB
     .then(db => db.get('levels', levelIndex))
     .then(level => {
-      levels.set(levelIndex, new Map(level?.tiles.map(({ key, tile }) => [key, tile])));
+      levels.set(levelIndex, new Map(level?.tiles.map(({ key, index }) => [key, index])));
     });
 async function getLevel(levelIndex: number) {
   if (!levels.has(levelIndex)) await loadLevelFromDB(levelIndex);
@@ -65,7 +64,7 @@ async function persistDirtyLevels() {
 
   const data = Array.from(dirtyLevels, levelIndex => ({
     levelIndex,
-    tiles: Array.from(levels.get(levelIndex)?.entries() ?? []).map(([key, tile]) => ({ key, tile })),
+    tiles: Array.from(levels.get(levelIndex)?.entries() ?? []).map(([key, index]) => ({ key, index })),
   }));
   dirtyLevels.clear();
 
@@ -125,10 +124,7 @@ const api = {
     await dungeonDB;
     const levelMap = await getLevel(levelIndex);
     return Array.from({ length: heightTiles }, (_, y) =>
-      Array.from(
-        { length: widthTiles },
-        (_, x) => TILE_INDEX[levelMap.get(tileKey(x + offsetTilesX, y + offsetTilesY))?.type ?? 'grass0']
-      )
+      Array.from({ length: widthTiles }, (_, x) => levelMap.get(tileKey(x + offsetTilesX, y + offsetTilesY)) ?? -1)
     );
   },
 
@@ -144,16 +140,16 @@ const api = {
     levelIndex = currentLevelIndex,
     x,
     y,
-    tile,
+    index,
   }: {
     levelIndex?: number;
     x: number;
     y: number;
-    tile: GridTile;
+    index: TileIndexes;
   }) {
     await dungeonDB;
     const levelMap = await getLevel(levelIndex);
-    levelMap.set(tileKey(x, y), tile);
+    levelMap.set(tileKey(x, y), index);
     markDirty(levelIndex);
   },
 
@@ -163,11 +159,11 @@ const api = {
     tiles,
   }: {
     levelIndex?: number;
-    tiles: Array<{ x: number; y: number; tile: GridTile }>;
+    tiles: Array<{ x: number; y: number; index: TileIndexes }>;
   }) {
     await dungeonDB;
     const levelMap = await getLevel(levelIndex);
-    tiles.forEach(({ x, y, tile }) => levelMap.set(tileKey(x, y), tile));
+    tiles.forEach(({ x, y, index }) => levelMap.set(tileKey(x, y), index));
     markDirty(levelIndex);
   },
 
