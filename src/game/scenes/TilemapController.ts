@@ -24,8 +24,6 @@ export class TilemapController {
   private readonly tilemap: Tilemaps.Tilemap;
   private readonly tileLayers: [Tilemaps.TilemapLayer, Tilemaps.TilemapLayer];
 
-  // === Safe Zone ===
-  // Прямоугольник в центре слоя — камера внутри = Fast Path (нет проверок)
   private readonly dynamicSafeZone = new Geom.Rectangle(0, 0, 0, 0);
 
   // === Velocity Tracking ===
@@ -38,14 +36,8 @@ export class TilemapController {
     lastUpdateTime: 0,
   };
 
-  // === Target State ===
-  // pendingDirection: нулевой вектор = center, ненулевой = movement. Movement вытесняет center.
   private pendingDirection: DirectionVector | null = null;
   private isGenerating = false;
-
-  // === Phaser Timers ===
-  // Motion Timer — адаптивная проверка движения (50-200ms)
-  // Center Debounce — задержка перед центрированием при остановке
   private readonly motionTimer: Time.TimerEvent;
   private centerDebounceTimer?: Time.TimerEvent;
 
@@ -116,61 +108,22 @@ export class TilemapController {
   getTileAtWorld({ worldX, worldY }: { worldX: number; worldY: number }) {
     return this.getActiveLayer().getTileAtWorldXY(worldX, worldY);
   }
-
-  // ============================================================
-  // === PUBLIC API ===
-  // ============================================================
-
-  /**
-   * Fast Path проверка — вызывается из MainScene.update().
-   *
-   * ЗАЧЕМ:
-   * - 80% кадров камера внутри Safe Zone → return true → минимум работы
-   * - Motion Timer работает независимо, но MainScene может использовать это
-   *   для оптимизации других систем
-   *
-   * ВЗАИМОДЕЙСТВИЕ:
-   * - MainScene.update() вызывает это первым
-   * - Если true — можно пропустить дополнительные проверки
-   */
-  public isCameraInSafeZone() {
-    const { centerX, centerY } = this.scene.cameras.main;
-    return this.dynamicSafeZone.contains(centerX, centerY);
+  private getActiveLayer() {
+    return this.tileLayers[0];
   }
 
-  /**
-   * Освобождает ресурсы при уничтожении сцены.
-   *
-   * ВАЖНО вызвать в MainScene.destroy() для предотвращения утечек памяти.
-   */
-  public destroy(): void {
+  destroy(): void {
     this.motionTimer.destroy();
     this.centerDebounceTimer?.destroy();
     this.centerDebounceTimer = undefined;
     this.pendingDirection = null;
   }
 
-  // ============================================================
-  // === SAFE ZONE ===
-  // ============================================================
-
-  /**
-   * Обновляет Safe Zone — статичный прямоугольник в центре слоя.
-   *
-   * ЗАЧЕМ:
-   * - Fast Path: камера в центральных 40% слоя → 100% не нужен новый слой
-   * - Пропускаем predictLayerNeed() — экономим несколько микросекунд
-   *
-   * ПОЧЕМУ СТАТИЧНАЯ:
-   * - Динамическое смещение дублирует логику predictLayerNeed()
-   * - predictLayerNeed() точнее — учитывает границы слоя и направление
-   * - Статичная зона проще и надёжнее
-   */
-  private updateSafeZone({ centerX, centerY, width, height }: Geom.Rectangle) {
-    const { baseSafeZoneRatio } = TILEMAP_STREAMING_CONFIG;
-    const halfWidth = Math.round((width * baseSafeZoneRatio) / 2);
-    const halfHeight = Math.round((height * baseSafeZoneRatio) / 2);
-    this.dynamicSafeZone.setTo(centerX - halfWidth, centerY - halfHeight, halfWidth * 2, halfHeight * 2);
+  private getAdaptiveCheckInterval(speed: number) {
+    const { timerIntervals, stopThreshold } = TILEMAP_STREAMING_CONFIG;
+    if (speed > 2.0) return timerIntervals.fast;
+    if (speed > stopThreshold) return timerIntervals.medium;
+    return timerIntervals.slow;
   }
 
   // ============================================================
@@ -246,9 +199,9 @@ export class TilemapController {
     return this.velocityState;
   }
 
-  /** Камера считается остановленной при speed < stopThreshold */
-  private isCameraStopped() {
-    return this.velocityState.speed < TILEMAP_STREAMING_CONFIG.stopThreshold;
+  private isCameraInSafeZone() {
+    const { centerX, centerY } = this.scene.cameras.main;
+    return this.dynamicSafeZone.contains(centerX, centerY);
   }
 
   // ============================================================
@@ -332,114 +285,11 @@ export class TilemapController {
 
     if (x || y) return { x, y } satisfies DirectionVector;
   }
-
-  // ============================================================
-  // === TARGET STATE + PRIORITY QUEUE ===
-  // ============================================================
-
-  /**
-   * Offset слоя, центрированного на камере.
-   * @returns X, Y — координаты в тайлах
-   */
-  private calculateCenteredLayerOffset() {
-    const { centerX, centerY } = this.scene.cameras.main;
-    const { width: w, height: h } = this.tilemap;
-    return {
-      X: Math.round((centerX - (w * TILE_SIZE) / 2) / TILE_SIZE),
-      Y: Math.round((centerY - (h * TILE_SIZE) / 2) / TILE_SIZE),
-    };
+  /** Камера считается остановленной при speed < stopThreshold */
+  private isCameraStopped() {
+    return this.velocityState.speed < TILEMAP_STREAMING_CONFIG.stopThreshold;
   }
 
-  /**
-   * Offset слоя, смещённого в направлении движения.
-   * @returns X, Y — координаты в тайлах
-   */
-  private calculateShiftedLayerOffset(direction: DirectionVector) {
-    const { width, height } = this.tilemap;
-    const { left, right, top, bottom } = this.scene.cameras.main.worldView;
-
-    return {
-      X:
-        direction.x > 0
-          ? Math.round(left / TILE_SIZE) - 2
-          : direction.x < 0
-            ? Math.round(right / TILE_SIZE) + 2 - width
-            : this.offsetTiles.X,
-      Y:
-        direction.y > 0
-          ? Math.round(top / TILE_SIZE) - 2
-          : direction.y < 0
-            ? Math.round(bottom / TILE_SIZE) + 2 - height
-            : this.offsetTiles.Y,
-    };
-  }
-
-  // ============================================================
-  // === SAVE WORKER INTEGRATION ===
-  // ============================================================
-
-  /**
-   * Генерирует данные слоя через saveWorker.
-   *
-   * ВАЖНО:
-   * - Выполняется в отдельном потоке (Web Worker)
-   * - Не блокирует Main Thread
-   * - Использует существующий API saveWorker.getTileLayerData()
-   *
-   * @param X, Y — координаты в тайлах
-   */
-  private async generateLayerData({ X, Y }: { X: number; Y: number }) {
-    const { width: widthTiles, height: heightTiles } = this.tilemap;
-    const tileLayerData = await getSaveWorker().getTileLayerData({
-      widthTiles,
-      heightTiles,
-      offsetTilesX: X,
-      offsetTilesY: Y,
-    });
-
-    return { X, Y, tileLayerData };
-  }
-
-  /**
-   * Применяет данные к неактивному слою и переключает слои.
-   *
-   * ПАТТЕРН: Double Buffering
-   * - Записываем в tileLayers[1] (невидимый)
-   * - Делаем видимым
-   * - Меняем местами [0] и [1]
-   * - Скрываем новый [1]
-   *
-   * @param data.X, data.Y — координаты в тайлах (умножаем на TILE_SIZE для пикселей)
-   */
-  private applyLayerData(data: { X: number; Y: number; tileLayerData: (TileIndexes | -1)[][] }): void {
-    console.log(
-      'Tile indices:',
-      data.tileLayerData.flat().filter((v, i, a) => a.indexOf(v) === i)
-    );
-
-    this.tileLayers[1]
-      .setVisible(false)
-      .setPosition(data.X * TILE_SIZE, data.Y * TILE_SIZE)
-      .putTilesAt(data.tileLayerData, 0, 0)
-      .setVisible(true);
-
-    this.tileLayers.reverse();
-    this.offsetTiles.X = data.X;
-    this.offsetTiles.Y = data.Y;
-    this.tileLayers[1].setVisible(false);
-  }
-
-  /**
-   * Генерирует слой если есть pending операция.
-   *
-   * @param direction — нулевой вектор = center, ненулевой = movement
-   *
-   * ЛОГИКА:
-   * - Если уже генерируем → выход
-   * - Вычисляем позицию в момент генерации (точнее чем при запросе)
-   * - Если цель достигнута → выход
-   * - Генерируем → применяем → обновляем Safe Zone
-   */
   private async tryProcessTargetState(direction: DirectionVector): Promise<void> {
     const isCenter = isZeroVector(direction);
     if (this.isGenerating) {
@@ -466,34 +316,70 @@ export class TilemapController {
     this.updateSafeZone(this.getActiveLayer().getBounds());
   }
 
-  // ============================================================
-  // === MOTION TIMER + DEBOUNCE ===
-  // ============================================================
+  private calculateCenteredLayerOffset() {
+    const { centerX, centerY } = this.scene.cameras.main;
+    const { width: w, height: h } = this.tilemap;
+    return {
+      X: Math.round((centerX - (w * TILE_SIZE) / 2) / TILE_SIZE),
+      Y: Math.round((centerY - (h * TILE_SIZE) / 2) / TILE_SIZE),
+    };
+  }
+  private calculateShiftedLayerOffset(direction: DirectionVector) {
+    const { width, height } = this.tilemap;
+    const { left, right, top, bottom } = this.scene.cameras.main.worldView;
 
-  /**
-   * Адаптивный интервал проверки в зависимости от скорости.
-   *
-   * ЗАЧЕМ:
-   * - Быстрое движение (>2 px/ms) → частые проверки (50ms)
-   * - Медленное движение → редкие проверки (200ms)
-   * - Экономия CPU при статичной камере
-   */
-  private getAdaptiveCheckInterval(speed: number): number {
-    const { timerIntervals, stopThreshold } = TILEMAP_STREAMING_CONFIG;
-    if (speed > 2.0) return timerIntervals.fast;
-    if (speed > stopThreshold) return timerIntervals.medium;
-    return timerIntervals.slow;
+    return {
+      X:
+        direction.x > 0
+          ? Math.round(left / TILE_SIZE) - 2
+          : direction.x < 0
+            ? Math.round(right / TILE_SIZE) + 2 - width
+            : this.offsetTiles.X,
+      Y:
+        direction.y > 0
+          ? Math.round(top / TILE_SIZE) - 2
+          : direction.y < 0
+            ? Math.round(bottom / TILE_SIZE) + 2 - height
+            : this.offsetTiles.Y,
+    };
   }
 
-  /**
-   * Планирует центрирование после остановки с debounce.
-   *
-   * ЗАЧЕМ:
-   * - Предотвращает центрирование при кратких остановках
-   * - 600ms достаточно для определения "реальной" остановки
-   */
-  private scheduleCenterOnStop(): void {
-    // Если таймер уже запущен, не создаём новый
+  private async generateLayerData({ X, Y }: { X: number; Y: number }) {
+    const { width: widthTiles, height: heightTiles } = this.tilemap;
+    const tileLayerData = await getSaveWorker().getTileLayerData({
+      widthTiles,
+      heightTiles,
+      offsetTilesX: X,
+      offsetTilesY: Y,
+    });
+
+    return { X, Y, tileLayerData };
+  }
+  private applyLayerData(data: { X: number; Y: number; tileLayerData: (TileIndexes | -1)[][] }) {
+    console.log(
+      'Tile indices:',
+      data.tileLayerData.flat().filter((v, i, a) => a.indexOf(v) === i)
+    );
+
+    this.tileLayers[1]
+      .setVisible(false)
+      .setPosition(data.X * TILE_SIZE, data.Y * TILE_SIZE)
+      .putTilesAt(data.tileLayerData, 0, 0)
+      .setVisible(true);
+
+    this.tileLayers.reverse();
+    this.offsetTiles.X = data.X;
+    this.offsetTiles.Y = data.Y;
+    this.tileLayers[1].setVisible(false);
+  }
+  private updateSafeZone({ centerX, centerY, width, height }: Geom.Rectangle) {
+    const { baseSafeZoneRatio } = TILEMAP_STREAMING_CONFIG;
+    const halfWidth = Math.round((width * baseSafeZoneRatio) / 2);
+    const halfHeight = Math.round((height * baseSafeZoneRatio) / 2);
+    this.dynamicSafeZone.setTo(centerX - halfWidth, centerY - halfHeight, halfWidth * 2, halfHeight * 2);
+  }
+
+  private scheduleCenterOnStop() {
     if (this.centerDebounceTimer) return;
 
     this.centerDebounceTimer = this.scene.time.delayedCall(TILEMAP_STREAMING_CONFIG.centerDebounceDelay, () => {
@@ -502,23 +388,15 @@ export class TilemapController {
       if (this.isCameraStopped()) this.tryProcessTargetState({ x: 0, y: 0 });
     });
   }
-  private cancelCenterDebounce(): void {
+  private cancelCenterDebounce() {
     this.centerDebounceTimer?.destroy();
     this.centerDebounceTimer = undefined;
   }
-
-  // ============================================================
-  // === LEGACY / INTERNAL ===
-  // ============================================================
 
   private static getTilemapSize(camera: Cameras.Scene2D.Camera) {
     const tilemapSizeMultiplier = 2;
     const k = tilemapSizeMultiplier / CAMERA_CONFIG.minZoom / TILE_SIZE;
     return { widthAtTiles: Math.ceil(k * camera.width), heightAtTiles: Math.ceil(k * camera.height) };
-  }
-
-  private getActiveLayer() {
-    return this.tileLayers[0];
   }
 
   updateTile(x: number, y: number, index: TileIndexes) {
