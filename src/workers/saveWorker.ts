@@ -1,61 +1,91 @@
 import { expose } from 'comlink';
-import { type DBSchema, openDB } from 'idb';
+import { type DBSchema, type IDBPDatabase, openDB } from 'idb';
 import { throttle } from 'lodash-es';
 
 import { SAVE_CONFIG } from '@/game/constants';
+import type { CapturingTileSaved } from '@/types/dungeon';
 import type { TileIndexes } from '@/types/level';
 
 export type SaveWorkerApi = typeof api;
+type LevelIndex = number;
 
-// Схема базы данных IndexedDB
+/** допустимые значения координат от 0 до 65535 */
+// const tileKey = (x: number, y: number) => `${Math.floor(x)}_${Math.floor(y)}` as const;
+const tileKey = (x: number, y: number) => (Math.floor(x) << 16) | (Math.floor(y) & 0xffff);
+// const getX = (key: ReturnType<typeof tileKey>) => key >> 16;
+// const getY = (key: ReturnType<typeof tileKey>) => key & 0xffff;
+
 interface DungeonDB extends DBSchema {
   levels: {
-    key: number;
+    key: LevelIndex;
     value: { tiles: Array<{ key: ReturnType<typeof tileKey>; index: TileIndexes }> };
   };
   meta: {
     key: 'state';
-    value: { currentLevelIndex: number };
+    value: { currentLevelIndex: LevelIndex };
+  };
+  capturing: {
+    key: LevelIndex;
+    value: { tiles: Array<{ key: ReturnType<typeof tileKey>; data: CapturingTileSaved }> };
+  };
+  dungeonState: {
+    key: 'attention';
+    value: { attentionLimit: number };
   };
 }
 
 // Внутреннее хранилище воркера
-let currentLevelIndex = 0;
-const levels = new Map<number, Map<ReturnType<typeof tileKey>, TileIndexes>>();
-const dirtyLevels = new Set<number>();
+let currentLevelIndex: LevelIndex = 0;
+const levels = new Map<LevelIndex, Map<ReturnType<typeof tileKey>, TileIndexes>>();
+const dirtyLevels = new Set<LevelIndex>();
 
+// Capturing tiles хранилище
+const capturingTiles = new Map<LevelIndex, Map<ReturnType<typeof tileKey>, CapturingTileSaved>>();
+const dirtyCapturingLevels = new Set<LevelIndex>();
+let attentionLimit = 8;
+
+const loadLevel = async (dungeonDB: PromiseLike<IDBPDatabase<DungeonDB>>, levelIndex: LevelIndex) =>
+  dungeonDB
+    .then(db => Promise.all([db.get('levels', levelIndex), db.get('capturing', levelIndex)]))
+    .then(([level, capturing]) => {
+      levels.set(levelIndex, new Map(level?.tiles.map(({ key, index }) => [key, index])));
+      capturingTiles.set(currentLevelIndex, new Map(capturing?.tiles.map(({ key, data }) => [key, data])));
+    });
 // Автоинициализация при загрузке модуля
-const dungeonDB = (async () => {
-  const db = await openDB<DungeonDB>('dungeon-builder', 1, {
-    upgrade(database) {
-      database.createObjectStore('levels');
-      database.createObjectStore('meta');
+const dungeonDB = (() => {
+  const dbPromise = openDB<DungeonDB>('dungeon-builder', 2, {
+    upgrade(database, oldVersion) {
+      // v0 → v1: базовые сторы
+      if (oldVersion < 1) {
+        database.createObjectStore('levels');
+        database.createObjectStore('meta');
+      }
+      // v1 → v2: capturing и dungeonState
+      if (oldVersion < 2) {
+        database.createObjectStore('capturing');
+        database.createObjectStore('dungeonState');
+      }
     },
   });
 
-  currentLevelIndex = (await db.get('meta', 'state'))?.currentLevelIndex ?? 0;
-  const data = await db.get('levels', currentLevelIndex);
-  if (data) levels.set(currentLevelIndex, new Map(data.tiles.map(({ key, index }) => [key, index])));
-  else levels.set(currentLevelIndex, new Map());
-
-  return db;
+  return Promise.all([
+    dbPromise
+      .then(db => db.get('meta', 'state'))
+      .then(state => (currentLevelIndex = state?.currentLevelIndex ?? 0))
+      .then(currentLevelIndex => loadLevel(dbPromise, currentLevelIndex)),
+    dbPromise
+      .then(db => db.get('dungeonState', 'attention'))
+      .then(attention => (attentionLimit = attention?.attentionLimit ?? 8)),
+  ]).then(() => dbPromise);
 })();
+const loadLevelFromDB = loadLevel.bind(undefined, dungeonDB);
 
-// Загрузка конкретного уровня из IndexedDB
-const loadLevelFromDB = async (levelIndex: number) =>
-  dungeonDB
-    .then(db => db.get('levels', levelIndex))
-    .then(level => {
-      levels.set(levelIndex, new Map(level?.tiles.map(({ key, index }) => [key, index])));
-    });
-async function getLevel(levelIndex: number) {
+async function getLevel(levelIndex: LevelIndex) {
   if (!levels.has(levelIndex)) await loadLevelFromDB(levelIndex);
   const level = levels.get(levelIndex);
   if (!level) throw new Error('unknown load level error');
   return level;
 }
-
-const tileKey = (x: number, y: number) => `${x},${y}` as const;
 
 // Сохранение грязных уровней в IndexedDB
 async function persistDirtyLevels() {
@@ -81,9 +111,42 @@ const throttledSave = throttle(persistDirtyLevels, SAVE_CONFIG.autoSaveInterval,
   trailing: true,
 });
 
-function markDirty(levelIndex: number) {
+function markDirty(levelIndex: LevelIndex) {
   dirtyLevels.add(levelIndex);
   throttledSave();
+}
+
+// ============================================================
+// === CAPTURING TILES PERSISTENCE ===
+// ============================================================
+
+async function persistDirtyCapturing() {
+  if (!dirtyCapturingLevels.size) return;
+  const db = await dungeonDB;
+  if (!dirtyCapturingLevels.size) return;
+
+  const data = Array.from(dirtyCapturingLevels, levelIndex => ({
+    levelIndex,
+    tiles: Array.from(capturingTiles.get(levelIndex)?.entries() ?? []).map(([key, data]) => ({ key, data })),
+  }));
+  dirtyCapturingLevels.clear();
+
+  const tx = db.transaction('capturing', 'readwrite');
+  for (const { levelIndex, tiles } of data) {
+    if (tiles.length) tx.objectStore('capturing').put({ tiles }, levelIndex);
+    else tx.objectStore('capturing').delete(levelIndex);
+  }
+  await tx.done;
+}
+
+const throttledSaveCapturing = throttle(persistDirtyCapturing, 1000, {
+  leading: false,
+  trailing: true,
+});
+
+function markCapturingDirty(levelIndex: LevelIndex) {
+  dirtyCapturingLevels.add(levelIndex);
+  throttledSaveCapturing();
 }
 
 // Сохранение currentLevelIndex в IndexedDB
@@ -105,10 +168,11 @@ const api = {
   async flush() {
     throttledSave.cancel();
     throttledSaveCurrentLevelIndex.cancel();
-    await Promise.all([persistDirtyLevels(), persistCurrentLevelIndex()]);
+    throttledSaveCapturing.cancel();
+    await Promise.all([persistDirtyLevels(), persistCurrentLevelIndex(), persistDirtyCapturing()]);
   },
 
-  // Получить данные для тайл-слоя (аналог buildTileLayerData)
+  // Получить данные для тайл-слоя
   async getTileLayerData({
     levelIndex = currentLevelIndex,
     widthTiles,
@@ -116,7 +180,7 @@ const api = {
     offsetTilesX,
     offsetTilesY,
   }: {
-    levelIndex?: number;
+    levelIndex?: LevelIndex;
     widthTiles: number;
     heightTiles: number;
     offsetTilesX: number;
@@ -130,7 +194,7 @@ const api = {
   },
 
   // Получить тайл
-  async getTile({ levelIndex = currentLevelIndex, x, y }: { levelIndex?: number; x: number; y: number }) {
+  async getTile({ levelIndex = currentLevelIndex, x, y }: { levelIndex?: LevelIndex; x: number; y: number }) {
     await dungeonDB;
     const levelMap = await getLevel(levelIndex);
     return levelMap.get(tileKey(x, y));
@@ -143,7 +207,7 @@ const api = {
     Y,
     index,
   }: {
-    levelIndex?: number;
+    levelIndex?: LevelIndex;
     X: number;
     Y: number;
     index: TileIndexes;
@@ -159,7 +223,7 @@ const api = {
     levelIndex = currentLevelIndex,
     tiles,
   }: {
-    levelIndex?: number;
+    levelIndex?: LevelIndex;
     tiles: Array<{ x: number; y: number; index: TileIndexes }>;
   }) {
     await dungeonDB;
@@ -175,16 +239,96 @@ const api = {
   },
 
   // Установить активный уровень
-  async setCurrentLevelIndex(levelIndex: number) {
+  async setCurrentLevelIndex(levelIndex: LevelIndex) {
     await dungeonDB;
     currentLevelIndex = levelIndex;
     if (!levels.has(levelIndex)) await loadLevelFromDB(levelIndex);
     throttledSaveCurrentLevelIndex();
   },
 
-  async getTilesCountInLevel({ levelIndex = currentLevelIndex }: { levelIndex?: number } = {}) {
+  async getTilesCountInLevel({ levelIndex = currentLevelIndex }: { levelIndex?: LevelIndex } = {}) {
     await dungeonDB;
     return (await getLevel(levelIndex)).size;
+  },
+
+  // ============================================================
+  // === CAPTURING TILES API ===
+  // ============================================================
+
+  async getCapturingTiles({ levelIndex = currentLevelIndex }: { levelIndex?: LevelIndex } = {}) {
+    await dungeonDB;
+    const map = capturingTiles.get(levelIndex);
+    if (!map) return [];
+    return Array.from(map.values());
+  },
+
+  async setCapturingTile({
+    levelIndex = currentLevelIndex,
+    X,
+    Y,
+    targetIndex,
+    elapsedMs,
+    duration,
+  }: {
+    levelIndex?: LevelIndex;
+    X: number;
+    Y: number;
+    targetIndex: TileIndexes;
+    elapsedMs: number;
+    duration: number;
+  }) {
+    await dungeonDB;
+    if (!capturingTiles.has(levelIndex)) capturingTiles.set(levelIndex, new Map());
+    capturingTiles.get(levelIndex)!.set(tileKey(X, Y), { X, Y, targetIndex, elapsedMs, duration });
+    markCapturingDirty(levelIndex);
+  },
+
+  async updateCapturingProgress({
+    levelIndex = currentLevelIndex,
+    X,
+    Y,
+    elapsedMs,
+  }: {
+    levelIndex?: LevelIndex;
+    X: number;
+    Y: number;
+    elapsedMs: number;
+  }) {
+    await dungeonDB;
+    const tile = capturingTiles.get(levelIndex)?.get(tileKey(X, Y));
+    if (tile) {
+      tile.elapsedMs = elapsedMs;
+      markCapturingDirty(levelIndex);
+    }
+  },
+
+  async removeCapturingTile({
+    levelIndex = currentLevelIndex,
+    X,
+    Y,
+  }: {
+    levelIndex?: LevelIndex;
+    X: number;
+    Y: number;
+  }) {
+    await dungeonDB;
+    capturingTiles.get(levelIndex)?.delete(tileKey(X, Y));
+    markCapturingDirty(levelIndex);
+  },
+
+  // ============================================================
+  // === ATTENTION LIMIT API ===
+  // ============================================================
+
+  async getAttentionLimit() {
+    await dungeonDB;
+    return attentionLimit;
+  },
+
+  async setAttentionLimit(newLimit: number) {
+    const db = await dungeonDB;
+    attentionLimit = newLimit;
+    await db.put('dungeonState', { attentionLimit }, 'attention');
   },
 };
 
