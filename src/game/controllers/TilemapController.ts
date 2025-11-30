@@ -8,15 +8,33 @@ import {
   TILE_SIZE,
   TILE_SPACING,
   TILE_TEXTURE_KEY,
-  type TileIndexes,
 } from '@/game/constants';
-import {
-  type Direction,
-  type DirectionVector,
-  type VelocityState,
-  isZeroVector,
-} from '@/game/scenes/tilemapStreaming.types';
+import type { TileIndexes } from '@/types/level';
 import { getSaveWorker } from '@/workers/saveWorkerProxy';
+
+/** Направление смещения слоя: -1 (влево/вверх), 0 (нет), 1 (вправо/вниз) */
+type Direction = -1 | 0 | 1;
+type DirectionVector = { x: Direction; y: Direction };
+function isZeroVector(vector: DirectionVector): vector is { x: 0; y: 0 } {
+  return !(vector.x || vector.y);
+}
+
+/**
+ * Состояние velocity tracking.
+ *
+ * ЗАЧЕМ:
+ * - velocity — текущая скорость с EMA сглаживанием
+ * - speed — модуль velocity (вычисляется в updateVelocityAndAcceleration)
+ * - acceleration — для квадратичной экстраполяции
+ * - lastPosition/lastUpdateTime — для вычисления мгновенной скорости
+ */
+type VelocityState = {
+  velocity: { x: number; y: number };
+  speed: number;
+  acceleration: { x: number; y: number };
+  lastPosition: { x: number; y: number };
+  lastUpdateTime: number;
+};
 
 export class TilemapController {
   private readonly offsetTiles = { X: 0, Y: 0 };

@@ -1,13 +1,13 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
-import type { PrimitiveTile } from '@/types/level';
+import type { TileKeys } from '@/types/level';
 
 export const useToolbarStore = defineStore('toolbar', () => {
-  const activeTile = ref<PrimitiveTile['type']>('grass0');
+  const activeTile = ref<TileKeys>('grass0');
 
   return {
     activeTile,
-    setActiveTile: (type: PrimitiveTile['type']) => (activeTile.value = type),
+    setActiveTile: (type: TileKeys) => (activeTile.value = type),
   };
 });

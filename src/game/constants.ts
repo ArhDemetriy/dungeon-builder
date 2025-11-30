@@ -1,18 +1,19 @@
+import type { ReverseMap } from '@/types/utils';
+
 export const TILE_SIZE = 64;
 export const TILE_SPACING = 0;
 export const TILE_MARGIN = 2;
 
 export const TILE_TEXTURE_KEY = 'tiles';
 
-export type TileIndexes = keyof typeof TILE_KEYS;
 export const TILE_KEYS = {
   0: 'grass0',
   1: 'grass1',
-} as const;
+} as const satisfies { [k: number]: string };
 export const TILE_INDEX = {
   grass0: 0,
   grass1: 1,
-} as const;
+} as const satisfies ReverseMap<typeof TILE_KEYS>;
 
 export const GRID_CONFIG = {
   color: 0x333333,

@@ -2,7 +2,8 @@ import { expose } from 'comlink';
 import { type DBSchema, openDB } from 'idb';
 import { throttle } from 'lodash-es';
 
-import { SAVE_CONFIG, type TileIndexes } from '@/game/constants';
+import { SAVE_CONFIG } from '@/game/constants';
+import type { TileIndexes } from '@/types/level';
 
 export type SaveWorkerApi = typeof api;
 

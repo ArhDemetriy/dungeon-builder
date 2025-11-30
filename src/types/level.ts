@@ -1,8 +1,7 @@
-export interface PrimitiveTile {
-  type: 'grass0' | 'grass1';
-}
+import type { TILE_INDEX, TILE_KEYS } from '@/game/constants';
 
-export type GridTile = PrimitiveTile;
+export type TileIndexes = keyof typeof TILE_KEYS;
+export type TileKeys = keyof typeof TILE_INDEX;
 
 export interface Level {
   name: string;

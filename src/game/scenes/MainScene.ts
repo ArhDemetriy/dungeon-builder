@@ -2,7 +2,7 @@ import { debounce } from 'lodash-es';
 import { type Cameras, Input, Scene } from 'phaser';
 
 import { CAMERA_CONFIG, MOVEMENT_CONFIG, TILE_INDEX, TILE_KEYS, TILE_SIZE } from '@/game/constants';
-import { TilemapController } from '@/game/scenes/TilemapController';
+import { TilemapController } from '@/game/controllers/TilemapController';
 import { useCameraPositionStore, useCameraZoomStore } from '@/store/cameraStore';
 import { useToolbarStore } from '@/store/toolbarStore';
 import { getSaveWorker } from '@/workers/saveWorkerProxy';
