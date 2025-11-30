@@ -40,26 +40,14 @@ export class MainScene extends Scene {
       tilemapController: this.tilemapController,
     });
     if (input.keyboard) registerUIKeyboardBindings(input.keyboard);
-
-    // TilemapController теперь автономен — Motion Timer запускается в конструкторе
-    // и работает независимо от update()
   }
 
   update(time: number, delta: number) {
     super.update(time, delta);
-
-    // Fast Path — 80% кадров камера внутри Safe Zone
-    // Motion Timer работает независимо от update()
-    // isCameraInSafeZone() можно использовать для оптимизации других систем при необходимости
-
     this.cameraMoveController.handleMovement(delta);
   }
 
-  /**
-   * Освобождает ресурсы при уничтожении сцены.
-   * Вызывается Phaser при shutdown/destroy сцены.
-   */
-  shutdown() {
+  destroy() {
     this.tilemapController?.destroy();
   }
 }
@@ -96,14 +84,22 @@ class TileController {
 
   private async placeTile(pointer: Input.Pointer) {
     // Конвертируем позицию клика в координаты тайла
-    const worldPoint = this.camera.getWorldPoint(pointer.x, pointer.y);
-    const x = Math.floor(worldPoint.x / TILE_SIZE);
-    const y = Math.floor(worldPoint.y / TILE_SIZE);
+    const { x: worldX, y: worldY } = this.camera.getWorldPoint(pointer.x, pointer.y);
+    const isOutOfTileLayer = this.tilemapController.getTileAtWorld({ worldX, worldY }) == null;
+    if (isOutOfTileLayer) {
+      // если под мышью нет тайла, то что-то идёт не так, под камерой всегда должен быть активный слой. Возможно стоит посмотреть TilemapController
+      console.error('placeTile called out of active Layer, maybe active Layer is not loaded. ', { worldX, worldY });
+      return;
+    }
+
+    const X = Math.floor(worldX / TILE_SIZE);
+    const Y = Math.floor(worldY / TILE_SIZE);
+    if (!this.tilemapController.isTileConnected(X, Y)) return; // бизнеслогика. Тайл можно размещать только в контакте с другими размещёнными тайлами
 
     const toolbarStore = useToolbarStore();
     const index = TILE_INDEX[toolbarStore.activeTile];
-    this.tilemapController.updateTile(x, y, index);
-    await getSaveWorker().setTile({ x, y, index });
+    this.tilemapController.updateTile(X, Y, index);
+    await getSaveWorker().setTile({ X, Y, index });
   }
 
   private eyedropperTool(pointer: Input.Pointer) {
@@ -135,25 +131,24 @@ class CameraMoveController {
             left: Input.Keyboard.KeyCodes.A,
             down: Input.Keyboard.KeyCodes.S,
             right: Input.Keyboard.KeyCodes.D,
-          }) as typeof this.cursorKeys);
+          }) satisfies typeof this.cursorKeys);
   }
 
+  private readonly cosPI4 = 0.7071067811865476;
   handleMovement(delta: number) {
-    if (this.cursorKeys) {
-      const { up, down, left, right } = this.cursorKeys;
-      const x = (left?.isDown ? -1 : 0) + (right?.isDown ? 1 : 0);
-      const y = (up?.isDown ? -1 : 0) + (down?.isDown ? 1 : 0);
-      if (!(x || y)) return;
+    if (!this.cursorKeys) return;
+    const { up, down, left, right } = this.cursorKeys;
+    const x = (left?.isDown ? -1 : 0) + (right?.isDown ? 1 : 0);
+    const y = (up?.isDown ? -1 : 0) + (down?.isDown ? 1 : 0);
+    if (!(x || y)) return;
 
-      const isDiagonal = x && y;
-      const cosPI4 = 0.7071067811865476;
-      const move = Math.round(
-        delta * CAMERA_CONFIG.moveSpeed * (isDiagonal ? cosPI4 : 1) * (CAMERA_CONFIG.maxZoom / this.camera.zoom)
-      );
-      if (x) this.camera.scrollX = Math.round(this.camera.scrollX + x * move);
-      if (y) this.camera.scrollY = Math.round(this.camera.scrollY + y * move);
-      CameraMoveController.debouncedSavePosition(this.camera.scrollX, this.camera.scrollY);
-    }
+    const isDiagonal = x && y;
+    const move = Math.round(
+      delta * CAMERA_CONFIG.moveSpeed * (isDiagonal ? this.cosPI4 : 1) * (CAMERA_CONFIG.maxZoom / this.camera.zoom)
+    );
+    if (x) this.camera.scrollX = Math.round(this.camera.scrollX + x * move);
+    if (y) this.camera.scrollY = Math.round(this.camera.scrollY + y * move);
+    CameraMoveController.debouncedSavePosition(this.camera.scrollX, this.camera.scrollY);
   }
 
   static readonly debouncedSavePosition = debounce(

@@ -138,18 +138,18 @@ const api = {
   // Установить тайл
   async setTile({
     levelIndex = currentLevelIndex,
-    x,
-    y,
+    X,
+    Y,
     index,
   }: {
     levelIndex?: number;
-    x: number;
-    y: number;
+    X: number;
+    Y: number;
     index: TileIndexes;
   }) {
     await dungeonDB;
     const levelMap = await getLevel(levelIndex);
-    levelMap.set(tileKey(x, y), index);
+    levelMap.set(tileKey(X, Y), index);
     markDirty(levelIndex);
   },
 

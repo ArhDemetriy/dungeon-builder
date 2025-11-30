@@ -106,7 +106,7 @@ export class TilemapController {
   }
 
   getTileAtWorld({ worldX, worldY }: { worldX: number; worldY: number }) {
-    return this.getActiveLayer().getTileAtWorldXY(worldX, worldY);
+    return this.getActiveLayer().getTileAtWorldXY(worldX, worldY, true);
   }
   private getActiveLayer() {
     return this.tileLayers[0];
@@ -400,7 +400,20 @@ export class TilemapController {
     return { widthAtTiles: Math.ceil(k * camera.width), heightAtTiles: Math.ceil(k * camera.height) };
   }
 
-  updateTile(x: number, y: number, index: TileIndexes) {
-    this.getActiveLayer().putTileAt(index, x - this.offsetTiles.X, y - this.offsetTiles.Y);
+  isTileConnected(x: number, y: number) {
+    const X = x - this.offsetTiles.X;
+    const Y = y - this.offsetTiles.Y;
+    if (X < 0 || Y < 0) return false;
+    const layer = this.getActiveLayer();
+    return (
+      layer.getTileAt(X, Y)?.index >= 0 ||
+      layer.getTileAt(X, Y + 1)?.index >= 0 ||
+      layer.getTileAt(X, Y - 1)?.index >= 0 ||
+      layer.getTileAt(X + 1, Y)?.index >= 0 ||
+      layer.getTileAt(X - 1, Y)?.index >= 0
+    );
+  }
+  updateTile(X: number, Y: number, index: TileIndexes) {
+    this.getActiveLayer().putTileAt(index, X - this.offsetTiles.X, Y - this.offsetTiles.Y);
   }
 }
