@@ -51,8 +51,7 @@
     "rolldown-vite": "^7.2.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "@latest",
-    "vite-plugin-vue-mcp": "^0.3.2"
+    "vite": "@latest"
   },
   "overrides": {
     "vite": "npm:rolldown-vite@latest"
