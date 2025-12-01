@@ -58,6 +58,9 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+      parserOptions: {
+        parser: tseslint.parser,
+      },
     },
     rules: {
       // Отключаем правило multi-word для компонентов (можем использовать App, Toolbar)
