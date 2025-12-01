@@ -17,6 +17,7 @@
     "qwe": "qwe"
   },
   "dependencies": {
+    "@headlessui/vue": "^1.7.23",
     "clsx": "^2.1.1",
     "comlink": "^4.4.2",
     "idb": "^8.0.3",
@@ -49,7 +50,8 @@
     "rolldown-vite": "^7.2.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "@latest"
+    "vite": "@latest",
+    "vite-plugin-vue-mcp": "^0.3.2"
   },
   "overrides": {
     "vite": "npm:rolldown-vite@latest"
