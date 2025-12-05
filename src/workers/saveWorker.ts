@@ -44,6 +44,10 @@ const capturingTiles = new Map<LevelIndex, Map<ReturnType<typeof tileKey>, Captu
 const dirtyCapturingLevels = new Set<LevelIndex>();
 let attentionLimit = 8;
 
+// Dirty-флаги для атомарного сохранения
+let dirtyMeta = false;
+let dirtyAttention = false;
+
 const loadLevel = async (dungeonDB: PromiseLike<IDBPDatabase<DungeonDB>>, levelIndex: LevelIndex) =>
   dungeonDB
     .then(db => Promise.all([db.get('levels', levelIndex), db.get('capturing', levelIndex)]))
@@ -87,77 +91,90 @@ async function getLevel(levelIndex: LevelIndex) {
   return level;
 }
 
-// Сохранение грязных уровней в IndexedDB
-async function persistDirtyLevels() {
-  if (!dirtyLevels.size) return;
-  const db = await dungeonDB;
-  if (!dirtyLevels.size) return;
+// ============================================================
+// === ЕДИНОЕ АТОМАРНОЕ СОХРАНЕНИЕ ===
+// ============================================================
 
-  const data = Array.from(dirtyLevels, levelIndex => ({
+async function persistAll() {
+  const hasDirty = dirtyLevels.size || dirtyCapturingLevels.size || dirtyMeta || dirtyAttention;
+  if (!hasDirty) return;
+
+  const db = await dungeonDB;
+  // Повторная проверка после await
+  if (!dirtyLevels.size && !dirtyCapturingLevels.size && !dirtyMeta && !dirtyAttention) return;
+
+  // Собрать данные ДО очистки флагов
+  const levelData = Array.from(dirtyLevels, levelIndex => ({
     levelIndex,
     tiles: Array.from(levels.get(levelIndex)?.entries() ?? []).map(([key, index]) => ({ key, index })),
   }));
-  dirtyLevels.clear();
+  const capturingData = Array.from(dirtyCapturingLevels, levelIndex => ({
+    levelIndex,
+    tiles: Array.from(capturingTiles.get(levelIndex)?.entries() ?? []).map(([key, data]) => ({ key, data })),
+  }));
+  const saveMeta = dirtyMeta;
+  const saveAttention = dirtyAttention;
+  const metaValue = currentLevelIndex;
+  const attentionValue = attentionLimit;
 
-  const tx = db.transaction('levels', 'readwrite');
-  for (const { tiles, levelIndex } of data) {
+  // Очистить флаги
+  dirtyLevels.clear();
+  dirtyCapturingLevels.clear();
+  dirtyMeta = false;
+  dirtyAttention = false;
+
+  // Одна транзакция для всех store
+  const tx = db.transaction(['levels', 'capturing', 'meta', 'dungeonState'], 'readwrite');
+
+  // Levels
+  for (const { tiles, levelIndex } of levelData) {
     if (tiles.length) tx.objectStore('levels').put({ tiles }, levelIndex);
     else tx.objectStore('levels').delete(levelIndex);
   }
+
+  // Capturing
+  for (const { levelIndex, tiles } of capturingData) {
+    if (tiles.length) tx.objectStore('capturing').put({ tiles }, levelIndex);
+    else tx.objectStore('capturing').delete(levelIndex);
+  }
+
+  // Meta
+  if (saveMeta) {
+    tx.objectStore('meta').put({ currentLevelIndex: metaValue }, 'state');
+  }
+
+  // Attention
+  if (saveAttention) {
+    tx.objectStore('dungeonState').put({ attentionLimit: attentionValue }, 'attention');
+  }
+
   await tx.done;
 }
-const throttledSave = throttle(persistDirtyLevels, SAVE_CONFIG.autoSaveInterval, {
+
+const throttledPersist = throttle(persistAll, SAVE_CONFIG.autoSaveInterval, {
   leading: false,
   trailing: true,
 });
 
 function markDirty(levelIndex: LevelIndex) {
   dirtyLevels.add(levelIndex);
-  throttledSave();
+  throttledPersist();
 }
-
-// ============================================================
-// === CAPTURING TILES PERSISTENCE ===
-// ============================================================
-
-async function persistDirtyCapturing() {
-  if (!dirtyCapturingLevels.size) return;
-  const db = await dungeonDB;
-  if (!dirtyCapturingLevels.size) return;
-
-  const data = Array.from(dirtyCapturingLevels, levelIndex => ({
-    levelIndex,
-    tiles: Array.from(capturingTiles.get(levelIndex)?.entries() ?? []).map(([key, data]) => ({ key, data })),
-  }));
-  dirtyCapturingLevels.clear();
-
-  const tx = db.transaction('capturing', 'readwrite');
-  for (const { levelIndex, tiles } of data) {
-    if (tiles.length) tx.objectStore('capturing').put({ tiles }, levelIndex);
-    else tx.objectStore('capturing').delete(levelIndex);
-  }
-  await tx.done;
-}
-
-const throttledSaveCapturing = throttle(persistDirtyCapturing, 1000, {
-  leading: false,
-  trailing: true,
-});
 
 function markCapturingDirty(levelIndex: LevelIndex) {
   dirtyCapturingLevels.add(levelIndex);
-  throttledSaveCapturing();
+  throttledPersist();
 }
 
-// Сохранение currentLevelIndex в IndexedDB
-async function persistCurrentLevelIndex() {
-  const db = await dungeonDB;
-  await db.put('meta', { currentLevelIndex }, 'state');
+function markMetaDirty() {
+  dirtyMeta = true;
+  throttledPersist();
 }
-const throttledSaveCurrentLevelIndex = throttle(persistCurrentLevelIndex, SAVE_CONFIG.autoSaveInterval, {
-  leading: false,
-  trailing: true,
-});
+
+function markAttentionDirty() {
+  dirtyAttention = true;
+  throttledPersist();
+}
 
 const api = {
   async waitForReady() {
@@ -166,10 +183,8 @@ const api = {
 
   // Принудительное сохранение
   async flush() {
-    throttledSave.cancel();
-    throttledSaveCurrentLevelIndex.cancel();
-    throttledSaveCapturing.cancel();
-    await Promise.all([persistDirtyLevels(), persistCurrentLevelIndex(), persistDirtyCapturing()]);
+    throttledPersist.cancel();
+    await persistAll();
   },
 
   // Получить данные для тайл-слоя
@@ -243,7 +258,7 @@ const api = {
     await dungeonDB;
     currentLevelIndex = levelIndex;
     if (!levels.has(levelIndex)) await loadLevelFromDB(levelIndex);
-    throttledSaveCurrentLevelIndex();
+    markMetaDirty();
   },
 
   async getTilesCountInLevel({ levelIndex = currentLevelIndex }: { levelIndex?: LevelIndex } = {}) {
@@ -326,9 +341,9 @@ const api = {
   },
 
   async setAttentionLimit(newLimit: number) {
-    const db = await dungeonDB;
+    await dungeonDB;
     attentionLimit = newLimit;
-    await db.put('dungeonState', { attentionLimit }, 'attention');
+    markAttentionDirty();
   },
 };
 
