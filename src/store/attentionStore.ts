@@ -1,7 +1,7 @@
 import { debounce } from 'lodash-es';
 import { nanoid } from 'nanoid';
 import { defineStore } from 'pinia';
-import { computed, shallowRef } from 'vue';
+import { computed, shallowRef, triggerRef } from 'vue';
 
 import { getSaveWorker } from '@/workers/saveWorkerProxy';
 
@@ -109,7 +109,7 @@ export const useAttentionStore = defineStore('attention', () => {
  * ЗАЧЕМ: Только активные задачи занимают внимание и прогрессируют.
  * Map для O(1) доступа по id.
  */
-export const useActiveTasksStore = defineStore('activeTasks', () => {
+const useActiveTasksStore = defineStore('activeTasks', () => {
   const tasks = shallowRef(new Map<string, TaskRuntime>());
   const totalCost = shallowRef(0);
   return {
@@ -135,6 +135,8 @@ export const useActiveTasksStore = defineStore('activeTasks', () => {
     getAll: () => Array.from(tasks.value.values()),
     /** Проверить наличие задачи */
     has: (taskId: string) => tasks.value.has(taskId),
+    /** Уведомить об изменении (для глубокой реактивности) */
+    notifyChange: () => triggerRef(tasks),
   };
 });
 
@@ -149,7 +151,7 @@ export const useActiveTasksStore = defineStore('activeTasks', () => {
  * resumed имеет приоритет над pending (уже начатые важнее).
  * Array для сохранения порядка.
  */
-export const useResumedTasksStore = defineStore('resumedTasks', () => {
+const useResumedTasksStore = defineStore('resumedTasks', () => {
   const tasks = shallowRef<TaskRuntime[]>([]);
   return {
     /** Очередь задач в порядке FIFO */
@@ -183,7 +185,7 @@ export const useResumedTasksStore = defineStore('resumedTasks', () => {
  * resumed имеет приоритет над pending (уже начатые важнее).
  * Array для сохранения порядка.
  */
-export const usePendingTasksStore = defineStore('pendingTasks', () => {
+const usePendingTasksStore = defineStore('pendingTasks', () => {
   const tasks = shallowRef<TaskRuntime[]>([]);
   return {
     /** Очередь задач в порядке FIFO */
@@ -217,7 +219,7 @@ export const usePendingTasksStore = defineStore('pendingTasks', () => {
  * Прогресс сохраняется, elapsedMs не увеличивается.
  * Map для O(1) доступа.
  */
-export const usePausedTasksStore = defineStore('pausedTasks', () => {
+const usePausedTasksStore = defineStore('pausedTasks', () => {
   const tasks = shallowRef(new Map<string, TaskRuntime>());
   return {
     /** Приостановленные задачи: id → TaskRuntime */
@@ -243,14 +245,50 @@ export const usePausedTasksStore = defineStore('pausedTasks', () => {
  * Координатор системы задач.
  *
  * ЗАЧЕМ: Единая точка входа для операций с задачами.
- * Управляет перемещением между пулами и заполнением активного пула.
+ * Управляет перемещением между пулами, заполнением активного пула и таймером тиков.
  *
  * АЛГОРИТМ заполнения:
  * 1. Последовательный (FIFO): сначала resumed, затем pending
  * 2. Жадный (по таймеру 30с): если первая не влезает — ищем меньшие
  */
-export const useTaskManagerStore = defineStore('taskManager', () => {
-  // Внутренние методы
+const useTaskManagerStore = defineStore('taskManager', () => {
+  const completeTask = (taskId: string) => {
+    const activeStore = useActiveTasksStore();
+    if (!activeStore.has(taskId)) return;
+    removeFromActive(taskId);
+    tryFillPool();
+  };
+
+  let tickInterval: ReturnType<typeof setInterval> | null = null;
+
+  const startTicking = () => {
+    if (tickInterval) return;
+    tickInterval = setInterval(tick, 1000);
+  };
+
+  const stopTicking = () => {
+    if (!tickInterval) return;
+    clearInterval(tickInterval);
+    tickInterval = null;
+  };
+
+  const tick = () => {
+    const now = Date.now();
+    const activeStore = useActiveTasksStore();
+
+    const completed: string[] = [];
+    for (const task of activeStore.getAll()) {
+      const deltaMs = now - task.lastTickTime;
+      task.lastTickTime = now;
+      task.elapsedMs += deltaMs;
+      if (task.elapsedMs >= task.duration) {
+        completed.push(task.id);
+      }
+    }
+    if (!completed.length) return activeStore.notifyChange();
+    for (const id of completed) completeTask(id);
+  };
+
   const canFit = (task: TaskRuntime) => {
     const { freeAttention, attentionCoefficient } = useAttentionStore();
     const requiredAttention = task.cost / attentionCoefficient;
@@ -258,9 +296,17 @@ export const useTaskManagerStore = defineStore('taskManager', () => {
   };
 
   const activate = (task: TaskRuntime) => {
-    task.lastTickTime = Date.now();
     const activeStore = useActiveTasksStore();
+    const wasEmpty = activeStore.tasks.size === 0;
+    task.lastTickTime = Date.now();
     activeStore.add(task);
+    if (wasEmpty) startTicking();
+  };
+
+  const removeFromActive = (taskId: string) => {
+    const activeStore = useActiveTasksStore();
+    activeStore.remove(taskId);
+    if (activeStore.tasks.size === 0) stopTicking();
   };
 
   const greedyPassScheduled = shallowRef(false);
@@ -306,6 +352,10 @@ export const useTaskManagerStore = defineStore('taskManager', () => {
     }
   }, 100);
 
+  // ============================================================
+  // === PUBLIC API ===
+  // ============================================================
+
   return {
     /** Включить жадный проход (прокачивается) */
     greedyPassEnabled,
@@ -313,14 +363,14 @@ export const useTaskManagerStore = defineStore('taskManager', () => {
      * Создать новую задачу и добавить в pending.
      * ГРАНИЧНЫЕ СЛУЧАИ: Вызывает tryFillPool — может сразу стать активной.
      */
-    addTask: (input: TaskInput) => {
+    addTask: ({ type, cost, duration, payload }: TaskInput) => {
       usePendingTasksStore().push({
         id: nanoid(),
-        type: input.type,
-        cost: input.cost,
+        type,
+        cost,
         elapsedMs: 0,
-        duration: input.duration,
-        payload: input.payload,
+        duration,
+        payload,
         lastTickTime: Date.now(),
       });
       tryFillPool();
@@ -333,9 +383,8 @@ export const useTaskManagerStore = defineStore('taskManager', () => {
       const activeStore = useActiveTasksStore();
       const task = activeStore.get(taskId);
       if (!task) return;
-      const pausedStore = usePausedTasksStore();
-      activeStore.remove(taskId);
-      pausedStore.add(task);
+      usePausedTasksStore().add(task);
+      removeFromActive(taskId);
       tryFillPool();
     },
     /**
@@ -346,9 +395,8 @@ export const useTaskManagerStore = defineStore('taskManager', () => {
       const pausedStore = usePausedTasksStore();
       const task = pausedStore.get(taskId);
       if (!task) return;
-      const resumedStore = useResumedTasksStore();
       pausedStore.remove(taskId);
-      resumedStore.push(task);
+      useResumedTasksStore().push(task);
       tryFillPool();
     },
     /**
@@ -358,7 +406,7 @@ export const useTaskManagerStore = defineStore('taskManager', () => {
     cancelTask: (taskId: string) => {
       const activeStore = useActiveTasksStore();
       if (activeStore.has(taskId)) {
-        activeStore.remove(taskId);
+        removeFromActive(taskId);
         tryFillPool();
         return;
       }
@@ -370,23 +418,7 @@ export const useTaskManagerStore = defineStore('taskManager', () => {
      * Завершить активную задачу.
      * АЛГОРИТМ: Удалить из active, вызвать tryFillPool.
      */
-    completeTask: (taskId: string) => {
-      const activeStore = useActiveTasksStore();
-      if (!activeStore.has(taskId)) return;
-      activeStore.remove(taskId);
-      tryFillPool();
-    },
-    /**
-     * Обновить прогресс задачи.
-     * @returns true если задача завершена (elapsedMs >= duration)
-     */
-    updateProgress: (taskId: string, deltaMs: number) => {
-      const activeStore = useActiveTasksStore();
-      const task = activeStore.get(taskId);
-      if (!task) return false;
-      task.elapsedMs += deltaMs;
-      return task.elapsedMs >= task.duration;
-    },
+    completeTask,
     /**
      * Найти задачу в любом пуле.
      * @returns TaskRuntime или undefined
@@ -411,5 +443,42 @@ export const useTaskManagerStore = defineStore('taskManager', () => {
      * ЗАЧЕМ: Дедупликация при множественных изменениях.
      */
     tryFillPool,
+  };
+});
+
+// ============================================================
+// === PUBLIC TASKS FACADE ===
+// ============================================================
+
+/**
+ * Публичный фасад для работы с задачами.
+ *
+ * ЗАЧЕМ: Единая точка доступа к спискам задач и методам управления.
+ * Скрывает внутреннюю структуру сторов.
+ */
+export const useTasksStore = defineStore('tasks', () => {
+  const activeStore = useActiveTasksStore();
+  const resumedStore = useResumedTasksStore();
+  const pendingStore = usePendingTasksStore();
+  const pausedStore = usePausedTasksStore();
+  const managerStore = useTaskManagerStore();
+
+  return {
+    /** Активные задачи (глубокая реактивность на elapsedMs) */
+    activeTasks: computed(() => activeStore.tasks),
+    /** Задачи возвращённые из паузы (FIFO) */
+    resumedTasks: computed(() => resumedStore.tasks),
+    /** Новые задачи в очереди (FIFO) */
+    pendingTasks: computed(() => pendingStore.tasks),
+    /** Приостановленные задачи */
+    pausedTasks: computed(() => pausedStore.tasks),
+    /** Создать новую задачу и добавить в pending */
+    addTask: managerStore.addTask,
+    /** Отменить задачу из любого пула */
+    cancelTask: managerStore.cancelTask,
+    /** Приостановить активную задачу */
+    pauseTask: managerStore.pauseTask,
+    /** Возобновить приостановленную задачу */
+    resumeTask: managerStore.resumeTask,
   };
 });
