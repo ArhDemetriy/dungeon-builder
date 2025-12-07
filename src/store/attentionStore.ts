@@ -5,20 +5,10 @@ import { computed, shallowRef, triggerRef } from 'vue';
 
 import { getSaveWorker } from '@/workers/saveWorkerProxy';
 
-// ============================================================
-// === TYPES ===
-// ============================================================
-
-/** Идентификатор пула задач */
-export type TaskPool = 'active' | 'resumed' | 'pending' | 'paused';
-
 /**
  * Входные данные для создания новой задачи.
- *
- * ЗАЧЕМ: Минимальный набор для addTask(), остальное генерируется автоматически.
- * cost и duration — независимые параметры (cost=1 может быть 5с или 60с).
  */
-export interface TaskInput {
+interface TaskInput {
   /** Цена внимания */
   cost: number;
   /** Длительность в мс */
@@ -30,8 +20,6 @@ export interface TaskInput {
 }
 /**
  * Базовая задача для сохранения в IndexedDB.
- *
- * ЗАЧЕМ: Минимальный набор данных для восстановления состояния после reload.
  */
 export interface TaskSaved extends TaskInput {
   /** Уникальный идентификатор задачи */
@@ -39,34 +27,17 @@ export interface TaskSaved extends TaskInput {
   /** Прогресс выполнения в миллисекундах */
   elapsedMs: number;
 }
-/**
- * Runtime-расширение задачи.
- *
- * ЗАЧЕМ: lastTickTime нужен для корректного расчёта deltaMs при updateProgress.
- * Не сохраняется — при загрузке устанавливается в Date.now().
- */
-export interface TaskRuntime extends TaskSaved {
-  /** Timestamp последнего tick (для расчёта delta) */
-  lastTickTime: number;
-}
 
-// ============================================================
-// === ATTENTION STORE ===
-// ============================================================
-
+const MINIMAL_COST = 1 satisfies TaskInput['cost'];
 /**
  * Стор состояния внимания подземелья.
- *
- * ЗАЧЕМ: Централизованное управление ресурсом "внимание".
- * attentionCoefficient прокачивается — увеличивает ёмкость пула.
- *
- * ВЗАИМОДЕЙСТВИЕ: Читается useTaskManagerStore для canFit().
  */
 export const useAttentionStore = defineStore('attention', () => {
   const attentionCoefficient = shallowRef(0);
   const usedAttention = computed(() =>
     attentionCoefficient.value > 0 ? useActiveTasksStore().totalCost / attentionCoefficient.value : 0
   );
+  const freeAttention = computed(() => 1 - usedAttention.value);
   return {
     /** Коэффициент внимания (int, прокачивается). */
     attentionCoefficient,
@@ -79,15 +50,22 @@ export const useAttentionStore = defineStore('attention', () => {
      * Доля свободного внимания (0.0 - 1.0).
      * Формула: 1 - usedAttention
      */
-    freeAttention: computed(() => 1 - usedAttention.value),
+    freeAttention,
+    canFit: ({ cost }: Pick<TaskSaved, 'cost'>) => {
+      const coefficient = attentionCoefficient.value;
+      if (coefficient <= 0) return false;
+      return freeAttention.value >= cost / coefficient;
+    },
     /**
      * Установить коэффициент внимания.
      * ГРАНИЧНЫЕ СЛУЧАИ: Вызывает tryFillPool — могут активироваться ожидающие задачи.
      */
     setAttentionCoefficient: (value: number) => {
       if (attentionCoefficient.value === value) return;
+      const needUpdate = value > attentionCoefficient.value;
       attentionCoefficient.value = value;
-      useTaskManagerStore().tryFillPool();
+      void getSaveWorker().setAttentionLimit(value);
+      if (needUpdate) useTaskManagerStore().tryFillPool();
     },
     /**
      * Загрузить лимит внимания из воркера.
@@ -99,112 +77,47 @@ export const useAttentionStore = defineStore('attention', () => {
   };
 });
 
-// ============================================================
-// === ACTIVE TASKS STORE ===
-// ============================================================
-
 /**
  * Стор активных задач.
- *
- * ЗАЧЕМ: Только активные задачи занимают внимание и прогрессируют.
- * Map для O(1) доступа по id.
  */
 const useActiveTasksStore = defineStore('activeTasks', () => {
-  const tasks = shallowRef(new Map<string, TaskRuntime>());
-  const totalCost = shallowRef(0);
+  const tasks = shallowRef(new Map<string, TaskSaved>());
   return {
-    /** Активные задачи: id → TaskRuntime */
-    tasks,
+    /** Активные задачи */
+    tasks: computed(() => Array.from(tasks.value.values())),
     /** Сумма cost всех активных задач */
-    totalCost,
+    totalCost: computed(() => {
+      if (!tasks.value.size) return 0;
+      let totalCost = 0;
+      tasks.value.forEach(task => (totalCost += task.cost));
+      return totalCost;
+    }),
+    isEmpty: computed(() => !tasks.value.size),
     /** Добавить задачу в активный пул */
-    add: (task: TaskRuntime) => {
+    add: (task: TaskSaved) => {
       tasks.value.set(task.id, task);
-      totalCost.value += task.cost;
+      triggerRef(tasks);
     },
     /** Удалить задачу из активного пула */
-    remove: (taskId: string) => {
-      const task = tasks.value.get(taskId);
-      if (!task) return;
-      totalCost.value -= task.cost;
-      tasks.value.delete(taskId);
-    },
+    remove: (taskId: string) => void (tasks.value.delete(taskId) && triggerRef(tasks)),
     /** Получить задачу по id */
     get: (taskId: string) => tasks.value.get(taskId),
-    /** Получить все задачи */
-    getAll: () => Array.from(tasks.value.values()),
     /** Проверить наличие задачи */
     has: (taskId: string) => tasks.value.has(taskId),
-    /** Уведомить об изменении (для глубокой реактивности) */
-    notifyChange: () => triggerRef(tasks),
-  };
-});
-
-// ============================================================
-// === RESUMED TASKS STORE ===
-// ============================================================
-
-/**
- * Стор очереди возвращённых из паузы задач.
- *
- * ЗАЧЕМ: FIFO очередь для справедливого распределения внимания.
- * resumed имеет приоритет над pending (уже начатые важнее).
- * Array для сохранения порядка.
- */
-const useResumedTasksStore = defineStore('resumedTasks', () => {
-  const tasks = shallowRef<TaskRuntime[]>([]);
-  return {
-    /** Очередь задач в порядке FIFO */
-    tasks,
-    /** Первая задача в очереди (для tryFillPool) */
-    first: computed(() => tasks.value[0]),
-    /** Добавить задачу в конец очереди */
-    push: (task: TaskRuntime) => {
-      tasks.value.push(task);
+    /**
+     * Обновить прогресс всех активных задач.
+     * @param delta мс с последнего тика
+     * @returns ids выполненных задач. Их нужно корректно завершить.
+     */
+    tick: (delta: number) => {
+      if (delta <= 0) return [];
+      const completed: string[] = [];
+      tasks.value.forEach(task => {
+        task.elapsedMs += delta;
+        if (task.elapsedMs >= task.duration) completed.push(task.id);
+      });
+      return completed;
     },
-    /** Извлечь первую задачу из очереди */
-    shift: () => tasks.value.shift(),
-    /** Удалить задачу по id (для cancel) */
-    remove: (taskId: string) => {
-      const index = tasks.value.findIndex(t => t.id === taskId);
-      if (index !== -1) tasks.value.splice(index, 1);
-    },
-    /** Получить все задачи (для greedy pass) */
-    getAll: () => [...tasks.value],
-  };
-});
-
-// ============================================================
-// === PENDING TASKS STORE ===
-// ============================================================
-
-/**
- * Стор очереди новых задач.
- *
- * ЗАЧЕМ: FIFO очередь для справедливого распределения внимания.
- * resumed имеет приоритет над pending (уже начатые важнее).
- * Array для сохранения порядка.
- */
-const usePendingTasksStore = defineStore('pendingTasks', () => {
-  const tasks = shallowRef<TaskRuntime[]>([]);
-  return {
-    /** Очередь задач в порядке FIFO */
-    tasks,
-    /** Первая задача в очереди (для tryFillPool) */
-    first: computed(() => tasks.value[0]),
-    /** Добавить задачу в конец очереди */
-    push: (task: TaskRuntime) => {
-      tasks.value.push(task);
-    },
-    /** Извлечь первую задачу из очереди */
-    shift: () => tasks.value.shift(),
-    /** Удалить задачу по id (для cancel) */
-    remove: (taskId: string) => {
-      const index = tasks.value.findIndex(t => t.id === taskId);
-      if (index !== -1) tasks.value.splice(index, 1);
-    },
-    /** Получить все задачи (для greedy pass) */
-    getAll: () => [...tasks.value],
   };
 });
 
@@ -220,20 +133,91 @@ const usePendingTasksStore = defineStore('pendingTasks', () => {
  * Map для O(1) доступа.
  */
 const usePausedTasksStore = defineStore('pausedTasks', () => {
-  const tasks = shallowRef(new Map<string, TaskRuntime>());
+  const tasks = shallowRef(new Map<string, TaskSaved>());
   return {
-    /** Приостановленные задачи: id → TaskRuntime */
-    tasks,
+    /** Приостановленные задачи */
+    tasks: computed(() => Array.from(tasks.value.values())),
     /** Добавить задачу на паузу */
-    add: (task: TaskRuntime) => {
+    add: (task: TaskSaved) => {
       tasks.value.set(task.id, task);
+      triggerRef(tasks);
     },
     /** Удалить задачу с паузы (для resume) */
-    remove: (taskId: string) => {
-      tasks.value.delete(taskId);
-    },
+    remove: (taskId: string) => void (tasks.value.delete(taskId) && triggerRef(tasks)),
     /** Получить задачу по id */
     get: (taskId: string) => tasks.value.get(taskId),
+  };
+});
+
+/**
+ * Стор очереди возвращённых из паузы задач.
+ */
+const useResumedTasksStore = defineStore('resumedTasks', () => {
+  const tasks = shallowRef<TaskSaved[]>([]);
+  return {
+    /** Очередь задач в порядке FIFO */
+    tasks,
+    /** Первая задача в очереди (для tryFillPool) */
+    first: computed(() => tasks.value[0]),
+    /** Добавить задачу в конец очереди */
+    push: (task: TaskSaved) => {
+      tasks.value.push(task);
+      triggerRef(tasks);
+    },
+    /** Извлечь первую задачу из очереди */
+    shift: () => {
+      const task = tasks.value.shift();
+      triggerRef(tasks);
+      return task;
+    },
+    /** Удалить задачу по id (для cancel) */
+    remove: (taskId: string) => {
+      const index = tasks.value.findIndex(t => t.id === taskId);
+      if (index < 0) return false;
+      const sucsess = Boolean(tasks.value.splice(index, 1).length);
+      triggerRef(tasks);
+      return sucsess;
+    },
+  };
+});
+
+// ============================================================
+// === PENDING TASKS STORE ===
+// ============================================================
+
+/**
+ * Стор очереди новых задач.
+ *
+ * ЗАЧЕМ: FIFO очередь для справедливого распределения внимания.
+ * resumed имеет приоритет над pending (уже начатые важнее).
+ * Array для сохранения порядка.
+ */
+const usePendingTasksStore = defineStore('pendingTasks', () => {
+  const tasks = shallowRef<TaskSaved[]>([]);
+  return {
+    /** Очередь задач в порядке FIFO */
+    tasks,
+    /** Первая задача в очереди (для tryFillPool) */
+    first: computed(() => tasks.value[0]),
+    /** Добавить задачу в конец очереди */
+    push: (task: TaskSaved) => {
+      tasks.value.push(task);
+      triggerRef(tasks);
+    },
+    /** Извлечь первую задачу из очереди */
+    shift: () => {
+      const task = tasks.value.shift();
+      triggerRef(tasks);
+      return task;
+    },
+    /** Удалить задачу по id (для cancel) */
+    remove: (taskId: string) => {
+      const index = tasks.value.findIndex(t => t.id === taskId);
+      if (index < 0) return false;
+      const sucsess = Boolean(tasks.value.splice(index, 1).length);
+      triggerRef(tasks);
+      return sucsess;
+    },
   };
 });
 
@@ -260,101 +244,102 @@ const useTaskManagerStore = defineStore('taskManager', () => {
   };
 
   let tickInterval: ReturnType<typeof setInterval> | null = null;
-
-  const startTicking = () => {
-    if (tickInterval) return;
-    tickInterval = setInterval(tick, 1000);
-  };
-
   const stopTicking = () => {
     if (!tickInterval) return;
     clearInterval(tickInterval);
     tickInterval = null;
   };
+  const startTicking = () => {
+    if (tickInterval) return;
+    let lastTickTime = Date.now();
+    tickInterval = setInterval(() => {
+      const now = Date.now();
+      const delta = now - lastTickTime;
+      lastTickTime = now;
 
-  const tick = () => {
-    const now = Date.now();
-    const activeStore = useActiveTasksStore();
+      const completed = useActiveTasksStore().tick(delta);
+      if (!completed.length) return;
 
-    const completed: string[] = [];
-    for (const task of activeStore.getAll()) {
-      const deltaMs = now - task.lastTickTime;
-      task.lastTickTime = now;
-      task.elapsedMs += deltaMs;
-      if (task.elapsedMs >= task.duration) {
-        completed.push(task.id);
-      }
-    }
-    if (!completed.length) return activeStore.notifyChange();
-    for (const id of completed) completeTask(id);
-  };
-
-  const canFit = (task: TaskRuntime) => {
-    const { freeAttention, attentionCoefficient } = useAttentionStore();
-    const requiredAttention = task.cost / attentionCoefficient;
-    return freeAttention >= requiredAttention;
-  };
-
-  const activate = (task: TaskRuntime) => {
-    const activeStore = useActiveTasksStore();
-    const wasEmpty = activeStore.tasks.size === 0;
-    task.lastTickTime = Date.now();
-    activeStore.add(task);
-    if (wasEmpty) startTicking();
-  };
-
-  const removeFromActive = (taskId: string) => {
-    const activeStore = useActiveTasksStore();
-    activeStore.remove(taskId);
-    if (activeStore.tasks.size === 0) stopTicking();
+      completed.forEach(completeTask);
+    }, 1000);
   };
 
   const greedyPassScheduled = shallowRef(false);
   const scheduleGreedyPass = () => {
     greedyPassScheduled.value = true;
     setTimeout(() => {
+      const { canFit } = useAttentionStore();
+      if (!canFit({ cost: MINIMAL_COST })) return;
+
+      const activeStore = useActiveTasksStore();
+      const activate = (task: TaskSaved) => {
+        const wasEmpty = activeStore.isEmpty;
+        activeStore.add(task);
+        if (wasEmpty) startTicking();
+      };
+
       const resumedStore = useResumedTasksStore();
-      for (const task of resumedStore.getAll()) {
+      for (const task of resumedStore.tasks) {
         if (!canFit(task)) continue;
         resumedStore.remove(task.id);
         activate(task);
       }
+      if (!canFit({ cost: MINIMAL_COST })) return;
+
       const pendingStore = usePendingTasksStore();
-      for (const task of pendingStore.getAll()) {
+      for (const task of pendingStore.tasks) {
         if (!canFit(task)) continue;
         pendingStore.remove(task.id);
         activate(task);
       }
+
       greedyPassScheduled.value = false;
     }, 30000);
   };
 
   const greedyPassEnabled = shallowRef(false);
   const tryFillPool = debounce(() => {
+    console.log('in tryFillPool');
+
+    const { canFit } = useAttentionStore();
+    if (!canFit({ cost: MINIMAL_COST })) return;
+
+    const activeStore = useActiveTasksStore();
+    const activate = (task: TaskSaved) => {
+      const wasEmpty = activeStore.isEmpty;
+      activeStore.add(task);
+      if (wasEmpty) startTicking();
+    };
+
     // 1. Сначала возвращённые из паузы (приоритет)
     const resumedStore = useResumedTasksStore();
+    console.log('tryFillPool resumedStore', resumedStore.first);
     while (resumedStore.first && canFit(resumedStore.first)) {
       const task = resumedStore.shift();
       if (task) activate(task);
     }
+    if (!canFit({ cost: MINIMAL_COST })) return;
 
     // 2. Затем pending
     const pendingStore = usePendingTasksStore();
+    console.log('tryFillPool pendingStore', pendingStore.first);
     while (pendingStore.first && canFit(pendingStore.first)) {
       const task = pendingStore.shift();
       if (task) activate(task);
     }
+    if (!canFit({ cost: MINIMAL_COST })) return;
 
     // 3. Если первая задача не влезает — запустить таймер
-    const nextTask = resumedStore.first ?? pendingStore.first;
-    if (nextTask && !canFit(nextTask) && greedyPassEnabled.value && !greedyPassScheduled.value) {
-      scheduleGreedyPass();
-    }
+    const needGreedyPass =
+      greedyPassEnabled.value && !greedyPassScheduled.value && (resumedStore.first || pendingStore.first);
+    if (needGreedyPass) scheduleGreedyPass();
   }, 100);
 
-  // ============================================================
-  // === PUBLIC API ===
-  // ============================================================
+  const removeFromActive = (taskId: string) => {
+    const activeStore = useActiveTasksStore();
+    activeStore.remove(taskId);
+    if (activeStore.isEmpty) stopTicking();
+  };
 
   return {
     /** Включить жадный проход (прокачивается) */
@@ -364,6 +349,7 @@ const useTaskManagerStore = defineStore('taskManager', () => {
      * ГРАНИЧНЫЕ СЛУЧАИ: Вызывает tryFillPool — может сразу стать активной.
      */
     addTask: ({ type, cost, duration, payload }: TaskInput) => {
+      console.log('addTask', { type, cost, duration, payload });
       usePendingTasksStore().push({
         id: nanoid(),
         type,
@@ -371,9 +357,10 @@ const useTaskManagerStore = defineStore('taskManager', () => {
         elapsedMs: 0,
         duration,
         payload,
-        lastTickTime: Date.now(),
       });
+      console.log('addTask pushed');
       tryFillPool();
+      console.log('addTask tryFillPool runned');
     },
     /**
      * Приостановить активную задачу.
@@ -383,8 +370,8 @@ const useTaskManagerStore = defineStore('taskManager', () => {
       const activeStore = useActiveTasksStore();
       const task = activeStore.get(taskId);
       if (!task) return;
-      usePausedTasksStore().add(task);
       removeFromActive(taskId);
+      usePausedTasksStore().add(task);
       tryFillPool();
     },
     /**
@@ -398,6 +385,17 @@ const useTaskManagerStore = defineStore('taskManager', () => {
       pausedStore.remove(taskId);
       useResumedTasksStore().push(task);
       tryFillPool();
+    },
+    /**
+     * Поставить на паузу задачу из очереди (resumed).
+     * АЛГОРИТМ: resumed → paused, не вызывает tryFillPool (не освобождает внимание).
+     */
+    pauseResumedTask: (taskId: string) => {
+      const resumedStore = useResumedTasksStore();
+      const task = resumedStore.tasks.find(t => t.id === taskId);
+      if (!task) return;
+      resumedStore.remove(taskId);
+      usePausedTasksStore().add(task);
     },
     /**
      * Отменить задачу из любого пула.
@@ -431,10 +429,10 @@ const useTaskManagerStore = defineStore('taskManager', () => {
       const paused = pausedStore.get(taskId);
       if (paused) return paused;
       const resumedStore = useResumedTasksStore();
-      const resumed = resumedStore.getAll().find(t => t.id === taskId);
+      const resumed = resumedStore.tasks.find(t => t.id === taskId);
       if (resumed) return resumed;
       const pendingStore = usePendingTasksStore();
-      const pending = pendingStore.getAll().find(t => t.id === taskId);
+      const pending = pendingStore.tasks.find(t => t.id === taskId);
       if (pending) return pending;
       return undefined;
     },
@@ -480,5 +478,7 @@ export const useTasksStore = defineStore('tasks', () => {
     pauseTask: managerStore.pauseTask,
     /** Возобновить приостановленную задачу */
     resumeTask: managerStore.resumeTask,
+    /** Поставить на паузу задачу из очереди (resumed) */
+    pauseResumedTask: managerStore.pauseResumedTask,
   };
 });
