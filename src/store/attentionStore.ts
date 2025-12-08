@@ -1,4 +1,4 @@
-import { debounce } from 'lodash-es';
+import { debounce, throttle } from 'lodash-es';
 import { nanoid } from 'nanoid';
 import { defineStore } from 'pinia';
 import { computed, shallowRef, triggerRef } from 'vue';
@@ -240,6 +240,7 @@ const useTaskManagerStore = defineStore('taskManager', () => {
     const activeStore = useActiveTasksStore();
     if (!activeStore.has(taskId)) return;
     removeFromActive(taskId);
+    void getSaveWorker().removeTask({ id: taskId, from: 'active' });
     tryFillPool();
   };
 
@@ -249,6 +250,14 @@ const useTaskManagerStore = defineStore('taskManager', () => {
     clearInterval(tickInterval);
     tickInterval = null;
   };
+  const updateProgressInWorker = throttle(
+    async (updates: Array<{ id: string; elapsedMs: number }>) => {
+      if (!updates.length) return;
+      void getSaveWorker().updateActiveProgress(updates);
+    },
+    1000
+  );
+
   const startTicking = () => {
     if (tickInterval) return;
     let lastTickTime = Date.now();
@@ -257,7 +266,16 @@ const useTaskManagerStore = defineStore('taskManager', () => {
       const delta = now - lastTickTime;
       lastTickTime = now;
 
-      const completed = useActiveTasksStore().tick(delta);
+      const activeStore = useActiveTasksStore();
+      const completed = activeStore.tick(delta);
+
+      // Обновить прогресс в воркере
+      const updates = activeStore.tasks.map(task => ({
+        id: task.id,
+        elapsedMs: task.elapsedMs,
+      }));
+      updateProgressInWorker(updates);
+
       if (!completed.length) return;
 
       completed.forEach(completeTask);
@@ -271,27 +289,28 @@ const useTaskManagerStore = defineStore('taskManager', () => {
       const { canFit } = useAttentionStore();
       if (!canFit({ cost: MINIMAL_COST })) return;
 
-      const activeStore = useActiveTasksStore();
-      const activate = (task: TaskSaved) => {
-        const wasEmpty = activeStore.isEmpty;
-        activeStore.add(task);
-        if (wasEmpty) startTicking();
-      };
+    const activeStore = useActiveTasksStore();
+    const activate = (task: TaskSaved, from: 'resumed' | 'pending') => {
+      const wasEmpty = activeStore.isEmpty;
+      activeStore.add(task);
+      void getSaveWorker().moveTask({ id: task.id, from, to: 'active' });
+      if (wasEmpty) startTicking();
+    };
 
-      const resumedStore = useResumedTasksStore();
-      for (const task of resumedStore.tasks) {
-        if (!canFit(task)) continue;
-        resumedStore.remove(task.id);
-        activate(task);
-      }
-      if (!canFit({ cost: MINIMAL_COST })) return;
+    const resumedStore = useResumedTasksStore();
+    for (const task of resumedStore.tasks) {
+      if (!canFit(task)) continue;
+      resumedStore.remove(task.id);
+      activate(task, 'resumed');
+    }
+    if (!canFit({ cost: MINIMAL_COST })) return;
 
-      const pendingStore = usePendingTasksStore();
-      for (const task of pendingStore.tasks) {
-        if (!canFit(task)) continue;
-        pendingStore.remove(task.id);
-        activate(task);
-      }
+    const pendingStore = usePendingTasksStore();
+    for (const task of pendingStore.tasks) {
+      if (!canFit(task)) continue;
+      pendingStore.remove(task.id);
+      activate(task, 'pending');
+    }
 
       greedyPassScheduled.value = false;
     }, 30000);
@@ -305,9 +324,10 @@ const useTaskManagerStore = defineStore('taskManager', () => {
     if (!canFit({ cost: MINIMAL_COST })) return;
 
     const activeStore = useActiveTasksStore();
-    const activate = (task: TaskSaved) => {
+    const activate = (task: TaskSaved, from: 'resumed' | 'pending') => {
       const wasEmpty = activeStore.isEmpty;
       activeStore.add(task);
+      void getSaveWorker().moveTask({ id: task.id, from, to: 'active' });
       if (wasEmpty) startTicking();
     };
 
@@ -316,7 +336,7 @@ const useTaskManagerStore = defineStore('taskManager', () => {
     console.log('tryFillPool resumedStore', resumedStore.first);
     while (resumedStore.first && canFit(resumedStore.first)) {
       const task = resumedStore.shift();
-      if (task) activate(task);
+      if (task) activate(task, 'resumed');
     }
     if (!canFit({ cost: MINIMAL_COST })) return;
 
@@ -325,7 +345,7 @@ const useTaskManagerStore = defineStore('taskManager', () => {
     console.log('tryFillPool pendingStore', pendingStore.first);
     while (pendingStore.first && canFit(pendingStore.first)) {
       const task = pendingStore.shift();
-      if (task) activate(task);
+      if (task) activate(task, 'pending');
     }
     if (!canFit({ cost: MINIMAL_COST })) return;
 
@@ -348,16 +368,18 @@ const useTaskManagerStore = defineStore('taskManager', () => {
      * Создать новую задачу и добавить в pending.
      * ГРАНИЧНЫЕ СЛУЧАИ: Вызывает tryFillPool — может сразу стать активной.
      */
-    addTask: ({ type, cost, duration, payload }: TaskInput) => {
+    addTask: async ({ type, cost, duration, payload }: TaskInput) => {
       console.log('addTask', { type, cost, duration, payload });
-      usePendingTasksStore().push({
+      const task: TaskSaved = {
         id: nanoid(),
         type,
         cost,
         elapsedMs: 0,
         duration,
         payload,
-      });
+      };
+      usePendingTasksStore().push(task);
+      void getSaveWorker().pushTasks({ tasks: [task] });
       console.log('addTask pushed');
       tryFillPool();
       console.log('addTask tryFillPool runned');
@@ -372,6 +394,7 @@ const useTaskManagerStore = defineStore('taskManager', () => {
       if (!task) return;
       removeFromActive(taskId);
       usePausedTasksStore().add(task);
+      void getSaveWorker().moveTask({ id: taskId, from: 'active', to: 'paused' });
       tryFillPool();
     },
     /**
@@ -384,6 +407,7 @@ const useTaskManagerStore = defineStore('taskManager', () => {
       if (!task) return;
       pausedStore.remove(taskId);
       useResumedTasksStore().push(task);
+      void getSaveWorker().moveTask({ id: taskId, from: 'paused', to: 'resumed' });
       tryFillPool();
     },
     /**
@@ -396,6 +420,7 @@ const useTaskManagerStore = defineStore('taskManager', () => {
       if (!task) return;
       resumedStore.remove(taskId);
       usePausedTasksStore().add(task);
+      void getSaveWorker().moveTask({ id: taskId, from: 'resumed', to: 'paused' });
     },
     /**
      * Отменить задачу из любого пула.
@@ -405,12 +430,27 @@ const useTaskManagerStore = defineStore('taskManager', () => {
       const activeStore = useActiveTasksStore();
       if (activeStore.has(taskId)) {
         removeFromActive(taskId);
+        void getSaveWorker().removeTask({ id: taskId, from: 'active' });
         tryFillPool();
         return;
       }
-      useResumedTasksStore().remove(taskId);
-      usePendingTasksStore().remove(taskId);
-      usePausedTasksStore().remove(taskId);
+      const resumedStore = useResumedTasksStore();
+      if (resumedStore.tasks.find(t => t.id === taskId)) {
+        resumedStore.remove(taskId);
+        void getSaveWorker().removeTask({ id: taskId, from: 'resumed' });
+        return;
+      }
+      const pendingStore = usePendingTasksStore();
+      if (pendingStore.tasks.find(t => t.id === taskId)) {
+        pendingStore.remove(taskId);
+        void getSaveWorker().removeTask({ id: taskId, from: 'pending' });
+        return;
+      }
+      const pausedStore = usePausedTasksStore();
+      if (pausedStore.get(taskId)) {
+        pausedStore.remove(taskId);
+        void getSaveWorker().removeTask({ id: taskId, from: 'paused' });
+      }
     },
     /**
      * Завершить активную задачу.
@@ -441,6 +481,23 @@ const useTaskManagerStore = defineStore('taskManager', () => {
      * ЗАЧЕМ: Дедупликация при множественных изменениях.
      */
     tryFillPool,
+    /**
+     * Загрузить задачи из воркера при старте приложения.
+     */
+    loadFromWorker: async () => {
+      const tasks = await getSaveWorker().getAllTasks();
+      const activeStore = useActiveTasksStore();
+      const pausedStore = usePausedTasksStore();
+      const resumedStore = useResumedTasksStore();
+      const pendingStore = usePendingTasksStore();
+
+      tasks.active.forEach(task => activeStore.add(task));
+      tasks.paused.forEach(task => pausedStore.add(task));
+      tasks.resumed.forEach(task => resumedStore.push(task));
+      tasks.pending.forEach(task => pendingStore.push(task));
+
+      if (tasks.active.length > 0) startTicking();
+    },
   };
 });
 
@@ -480,5 +537,7 @@ export const useTasksStore = defineStore('tasks', () => {
     resumeTask: managerStore.resumeTask,
     /** Поставить на паузу задачу из очереди (resumed) */
     pauseResumedTask: managerStore.pauseResumedTask,
+    /** Загрузить задачи из воркера при старте приложения */
+    loadFromWorker: managerStore.loadFromWorker,
   };
 });

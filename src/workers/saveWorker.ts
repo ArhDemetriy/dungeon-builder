@@ -3,11 +3,12 @@ import { type DBSchema, type IDBPDatabase, openDB } from 'idb';
 import { throttle } from 'lodash-es';
 
 import { SAVE_CONFIG } from '@/game/constants';
-import type { CapturingTileSaved } from '@/types/dungeon';
+import type { TaskSaved } from '@/store/attentionStore';
 import type { TileIndexes } from '@/types/level';
 
 export type SaveWorkerApi = typeof api;
 type LevelIndex = number;
+type TaskPool = 'active' | 'paused' | 'resumed' | 'pending';
 
 /** допустимые значения координат от 0 до 65535 */
 // const tileKey = (x: number, y: number) => `${Math.floor(x)}_${Math.floor(y)}` as const;
@@ -24,9 +25,9 @@ interface DungeonDB extends DBSchema {
     key: 'state';
     value: { currentLevelIndex: LevelIndex };
   };
-  capturing: {
-    key: LevelIndex;
-    value: { tiles: Array<{ key: ReturnType<typeof tileKey>; data: CapturingTileSaved }> };
+  tasks: {
+    key: TaskPool;
+    value: { tasks: TaskSaved[] };
   };
   dungeonState: {
     key: 'attention';
@@ -39,25 +40,31 @@ let currentLevelIndex: LevelIndex = 0;
 const levels = new Map<LevelIndex, Map<ReturnType<typeof tileKey>, TileIndexes>>();
 const dirtyLevels = new Set<LevelIndex>();
 
-// Capturing tiles хранилище
-const capturingTiles = new Map<LevelIndex, Map<ReturnType<typeof tileKey>, CapturingTileSaved>>();
-const dirtyCapturingLevels = new Set<LevelIndex>();
-let attentionLimit = 8;
+// Tasks хранилище
+const activeTasks = new Map<string, TaskSaved>();
+const pausedTasks = new Map<string, TaskSaved>();
+const resumedTasks: TaskSaved[] = [];
+const pendingTasks: TaskSaved[] = [];
 
 // Dirty-флаги для атомарного сохранения
 let dirtyMeta = false;
 let dirtyAttention = false;
+let dirtyActiveTasks = false;
+let dirtyPausedTasks = false;
+let dirtyResumedTasks = false;
+let dirtyPendingTasks = false;
+
+let attentionLimit = 8;
 
 const loadLevel = async (dungeonDB: PromiseLike<IDBPDatabase<DungeonDB>>, levelIndex: LevelIndex) =>
   dungeonDB
-    .then(db => Promise.all([db.get('levels', levelIndex), db.get('capturing', levelIndex)]))
-    .then(([level, capturing]) => {
+    .then(db => db.get('levels', levelIndex))
+    .then(level => {
       levels.set(levelIndex, new Map(level?.tiles.map(({ key, index }) => [key, index])));
-      capturingTiles.set(currentLevelIndex, new Map(capturing?.tiles.map(({ key, data }) => [key, data])));
     });
 // Автоинициализация при загрузке модуля
 const dungeonDB = (() => {
-  const dbPromise = openDB<DungeonDB>('dungeon-builder', 2, {
+  const dbPromise = openDB<DungeonDB>('dungeon-builder', 3, {
     upgrade(database, oldVersion) {
       // v0 → v1: базовые сторы
       if (oldVersion < 1) {
@@ -66,8 +73,15 @@ const dungeonDB = (() => {
       }
       // v1 → v2: capturing и dungeonState
       if (oldVersion < 2) {
-        database.createObjectStore('capturing');
+        database.createObjectStore('capturing' as never);
         database.createObjectStore('dungeonState');
+      }
+      // v2 → v3: tasks (удаляем capturing)
+      if (oldVersion < 3) {
+        if (database.objectStoreNames.contains('capturing' as never)) {
+          database.deleteObjectStore('capturing' as never);
+        }
+        database.createObjectStore('tasks');
       }
     },
   });
@@ -80,6 +94,26 @@ const dungeonDB = (() => {
     dbPromise
       .then(db => db.get('dungeonState', 'attention'))
       .then(attention => (attentionLimit = attention?.attentionLimit ?? 8)),
+    dbPromise.then(async db => {
+      const [active, paused, resumed, pending] = await Promise.all([
+        db.get('tasks', 'active'),
+        db.get('tasks', 'paused'),
+        db.get('tasks', 'resumed'),
+        db.get('tasks', 'pending'),
+      ]);
+      if (active?.tasks) {
+        active.tasks.forEach(task => activeTasks.set(task.id, task));
+      }
+      if (paused?.tasks) {
+        paused.tasks.forEach(task => pausedTasks.set(task.id, task));
+      }
+      if (resumed?.tasks) {
+        resumedTasks.push(...resumed.tasks);
+      }
+      if (pending?.tasks) {
+        pendingTasks.push(...pending.tasks);
+      }
+    }),
   ]).then(() => dbPromise);
 })();
 const loadLevelFromDB = loadLevel.bind(undefined, dungeonDB);
@@ -96,46 +130,59 @@ async function getLevel(levelIndex: LevelIndex) {
 // ============================================================
 
 async function persistAll() {
-  const hasDirty = dirtyLevels.size || dirtyCapturingLevels.size || dirtyMeta || dirtyAttention;
+  const hasDirty =
+    dirtyLevels.size ||
+    dirtyMeta ||
+    dirtyAttention ||
+    dirtyActiveTasks ||
+    dirtyPausedTasks ||
+    dirtyResumedTasks ||
+    dirtyPendingTasks;
   if (!hasDirty) return;
 
   const db = await dungeonDB;
   // Повторная проверка после await
-  if (!dirtyLevels.size && !dirtyCapturingLevels.size && !dirtyMeta && !dirtyAttention) return;
+  if (
+    !dirtyLevels.size &&
+    !dirtyMeta &&
+    !dirtyAttention &&
+    !dirtyActiveTasks &&
+    !dirtyPausedTasks &&
+    !dirtyResumedTasks &&
+    !dirtyPendingTasks
+  )
+    return;
 
   // Собрать данные ДО очистки флагов
   const levelData = Array.from(dirtyLevels, levelIndex => ({
     levelIndex,
     tiles: Array.from(levels.get(levelIndex)?.entries() ?? []).map(([key, index]) => ({ key, index })),
   }));
-  const capturingData = Array.from(dirtyCapturingLevels, levelIndex => ({
-    levelIndex,
-    tiles: Array.from(capturingTiles.get(levelIndex)?.entries() ?? []).map(([key, data]) => ({ key, data })),
-  }));
   const saveMeta = dirtyMeta;
   const saveAttention = dirtyAttention;
+  const saveActiveTasks = dirtyActiveTasks;
+  const savePausedTasks = dirtyPausedTasks;
+  const saveResumedTasks = dirtyResumedTasks;
+  const savePendingTasks = dirtyPendingTasks;
   const metaValue = currentLevelIndex;
   const attentionValue = attentionLimit;
 
   // Очистить флаги
   dirtyLevels.clear();
-  dirtyCapturingLevels.clear();
   dirtyMeta = false;
   dirtyAttention = false;
+  dirtyActiveTasks = false;
+  dirtyPausedTasks = false;
+  dirtyResumedTasks = false;
+  dirtyPendingTasks = false;
 
   // Одна транзакция для всех store
-  const tx = db.transaction(['levels', 'capturing', 'meta', 'dungeonState'], 'readwrite');
+  const tx = db.transaction(['levels', 'meta', 'dungeonState', 'tasks'], 'readwrite');
 
   // Levels
   for (const { tiles, levelIndex } of levelData) {
     if (tiles.length) tx.objectStore('levels').put({ tiles }, levelIndex);
     else tx.objectStore('levels').delete(levelIndex);
-  }
-
-  // Capturing
-  for (const { levelIndex, tiles } of capturingData) {
-    if (tiles.length) tx.objectStore('capturing').put({ tiles }, levelIndex);
-    else tx.objectStore('capturing').delete(levelIndex);
   }
 
   // Meta
@@ -146,6 +193,26 @@ async function persistAll() {
   // Attention
   if (saveAttention) {
     tx.objectStore('dungeonState').put({ attentionLimit: attentionValue }, 'attention');
+  }
+
+  // Tasks
+  if (saveActiveTasks) {
+    const tasks = Array.from(activeTasks.values());
+    if (tasks.length) tx.objectStore('tasks').put({ tasks }, 'active');
+    else tx.objectStore('tasks').delete('active');
+  }
+  if (savePausedTasks) {
+    const tasks = Array.from(pausedTasks.values());
+    if (tasks.length) tx.objectStore('tasks').put({ tasks }, 'paused');
+    else tx.objectStore('tasks').delete('paused');
+  }
+  if (saveResumedTasks) {
+    if (resumedTasks.length) tx.objectStore('tasks').put({ tasks: resumedTasks }, 'resumed');
+    else tx.objectStore('tasks').delete('resumed');
+  }
+  if (savePendingTasks) {
+    if (pendingTasks.length) tx.objectStore('tasks').put({ tasks: pendingTasks }, 'pending');
+    else tx.objectStore('tasks').delete('pending');
   }
 
   await tx.done;
@@ -161,11 +228,6 @@ function markDirty(levelIndex: LevelIndex) {
   throttledPersist();
 }
 
-function markCapturingDirty(levelIndex: LevelIndex) {
-  dirtyCapturingLevels.add(levelIndex);
-  throttledPersist();
-}
-
 function markMetaDirty() {
   dirtyMeta = true;
   throttledPersist();
@@ -173,6 +235,14 @@ function markMetaDirty() {
 
 function markAttentionDirty() {
   dirtyAttention = true;
+  throttledPersist();
+}
+
+function markTasksDirty(pool: TaskPool) {
+  if (pool === 'active') dirtyActiveTasks = true;
+  else if (pool === 'paused') dirtyPausedTasks = true;
+  else if (pool === 'resumed') dirtyResumedTasks = true;
+  else if (pool === 'pending') dirtyPendingTasks = true;
   throttledPersist();
 }
 
@@ -267,68 +337,91 @@ const api = {
   },
 
   // ============================================================
-  // === CAPTURING TILES API ===
+  // === TASKS API ===
   // ============================================================
 
-  async getCapturingTiles({ levelIndex = currentLevelIndex }: { levelIndex?: LevelIndex } = {}) {
+  async getAllTasks() {
     await dungeonDB;
-    const map = capturingTiles.get(levelIndex);
-    if (!map) return [];
-    return Array.from(map.values());
+    return {
+      active: Array.from(activeTasks.values()),
+      paused: Array.from(pausedTasks.values()),
+      resumed: [...resumedTasks],
+      pending: [...pendingTasks],
+    };
   },
 
-  async setCapturingTile({
-    levelIndex = currentLevelIndex,
-    X,
-    Y,
-    targetIndex,
-    elapsedMs,
-    duration,
-  }: {
-    levelIndex?: LevelIndex;
-    X: number;
-    Y: number;
-    targetIndex: TileIndexes;
-    elapsedMs: number;
-    duration: number;
-  }) {
+  async moveTask({ id, from, to }: { id: string; from: TaskPool; to: TaskPool }) {
     await dungeonDB;
-    if (!capturingTiles.has(levelIndex)) capturingTiles.set(levelIndex, new Map());
-    capturingTiles.get(levelIndex)!.set(tileKey(X, Y), { X, Y, targetIndex, elapsedMs, duration });
-    markCapturingDirty(levelIndex);
-  },
+    let task: TaskSaved | undefined;
 
-  async updateCapturingProgress({
-    levelIndex = currentLevelIndex,
-    X,
-    Y,
-    elapsedMs,
-  }: {
-    levelIndex?: LevelIndex;
-    X: number;
-    Y: number;
-    elapsedMs: number;
-  }) {
-    await dungeonDB;
-    const tile = capturingTiles.get(levelIndex)?.get(tileKey(X, Y));
-    if (tile) {
-      tile.elapsedMs = elapsedMs;
-      markCapturingDirty(levelIndex);
+    // Извлечь из исходного пула
+    if (from === 'active') {
+      task = activeTasks.get(id);
+      if (task) activeTasks.delete(id);
+    } else if (from === 'paused') {
+      task = pausedTasks.get(id);
+      if (task) pausedTasks.delete(id);
+    } else if (from === 'resumed') {
+      const index = resumedTasks.findIndex(t => t.id === id);
+      if (index >= 0) {
+        task = resumedTasks[index];
+        resumedTasks.splice(index, 1);
+      }
+    } else if (from === 'pending') {
+      const index = pendingTasks.findIndex(t => t.id === id);
+      if (index >= 0) {
+        task = pendingTasks[index];
+        pendingTasks.splice(index, 1);
+      }
     }
+
+    if (!task) return;
+
+    // Добавить в целевой пул
+    if (to === 'active') {
+      activeTasks.set(id, task);
+    } else if (to === 'paused') {
+      pausedTasks.set(id, task);
+    } else if (to === 'resumed') {
+      resumedTasks.push(task);
+    } else if (to === 'pending') {
+      pendingTasks.push(task);
+    }
+
+    markTasksDirty(from);
+    markTasksDirty(to);
   },
 
-  async removeCapturingTile({
-    levelIndex = currentLevelIndex,
-    X,
-    Y,
-  }: {
-    levelIndex?: LevelIndex;
-    X: number;
-    Y: number;
-  }) {
+  async pushTasks({ tasks }: { tasks: TaskSaved[] }) {
     await dungeonDB;
-    capturingTiles.get(levelIndex)?.delete(tileKey(X, Y));
-    markCapturingDirty(levelIndex);
+    pendingTasks.push(...tasks);
+    markTasksDirty('pending');
+    return tasks.map(t => t.id);
+  },
+
+  async removeTask({ id, from }: { id: string; from: TaskPool }) {
+    await dungeonDB;
+    if (from === 'active') {
+      activeTasks.delete(id);
+    } else if (from === 'paused') {
+      pausedTasks.delete(id);
+    } else if (from === 'resumed') {
+      const index = resumedTasks.findIndex(t => t.id === id);
+      if (index >= 0) resumedTasks.splice(index, 1);
+    } else if (from === 'pending') {
+      const index = pendingTasks.findIndex(t => t.id === id);
+      if (index >= 0) pendingTasks.splice(index, 1);
+    }
+    markTasksDirty(from);
+  },
+
+  async updateActiveProgress(updates: Array<{ id: string; elapsedMs: number }>) {
+    await dungeonDB;
+    for (const { id, elapsedMs } of updates) {
+      const task = activeTasks.get(id);
+      if (task) task.elapsedMs = elapsedMs;
+    }
+    markTasksDirty('active');
   },
 
   // ============================================================
