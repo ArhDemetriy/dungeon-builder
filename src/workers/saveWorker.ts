@@ -16,7 +16,8 @@ const tileKey = (x: number, y: number) => (Math.floor(x) << 16) | (Math.floor(y)
 // const getX = (key: ReturnType<typeof tileKey>) => key >> 16;
 // const getY = (key: ReturnType<typeof tileKey>) => key & 0xffff;
 
-interface DungeonDB extends DBSchema {
+type Schema<T extends DBSchema> = T;
+type DungeonDB = Schema<{
   levels: {
     key: LevelIndex;
     value: { tiles: Array<{ key: ReturnType<typeof tileKey>; index: TileIndexes }> };
@@ -33,7 +34,7 @@ interface DungeonDB extends DBSchema {
     key: 'attention';
     value: { attentionLimit: number };
   };
-}
+}>;
 
 // Внутреннее хранилище воркера
 let currentLevelIndex: LevelIndex = 0;
@@ -176,8 +177,15 @@ async function persistAll() {
   dirtyResumedTasks = false;
   dirtyPendingTasks = false;
 
+  // Собрать блокируемые сторы
+  const keys: Set<keyof DungeonDB> = new Set();
+  if (levelData.length) keys.add('levels');
+  if (saveMeta) keys.add('meta');
+  if (saveAttention) keys.add('dungeonState');
+  if (saveActiveTasks || savePausedTasks || saveResumedTasks || savePendingTasks) keys.add('tasks');
+
   // Одна транзакция для всех store
-  const tx = db.transaction(['levels', 'meta', 'dungeonState', 'tasks'], 'readwrite');
+  const tx = db.transaction(Array.from(keys), 'readwrite');
 
   // Levels
   for (const { tiles, levelIndex } of levelData) {
