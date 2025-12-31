@@ -8,20 +8,23 @@ import { getSaveWorker } from '@/workers/saveWorkerProxy';
 /**
  * Входные данные для создания новой задачи.
  */
-interface TaskInput {
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+interface TaskInput<P extends { [k in string]: unknown } = {}, T extends string = string> {
   /** Цена внимания */
   cost: number;
   /** Длительность в мс */
   duration: number;
   /** Тип задачи */
-  type: string;
+  type: T;
   /** Payload специфичный для типа */
-  payload: unknown;
+  payload: P;
 }
 /**
  * Базовая задача для сохранения в IndexedDB.
  */
-export interface TaskSaved extends TaskInput {
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface TaskSaved<P extends { [k in string]: unknown } = {}, T extends string = string>
+  extends TaskInput<P, T> {
   /** Уникальный идентификатор задачи */
   id: string;
   /** Прогресс выполнения в миллисекундах */
@@ -94,10 +97,7 @@ const useActiveTasksStore = defineStore('activeTasks', () => {
     }),
     isEmpty: computed(() => !tasks.value.size),
     /** Добавить задачу в активный пул */
-    add: (task: TaskSaved) => {
-      tasks.value.set(task.id, task);
-      triggerRef(tasks);
-    },
+    add: (task: TaskSaved) => void (tasks.value.set(task.id, task) && triggerRef(tasks)),
     /** Удалить задачу из активного пула */
     remove: (taskId: string) => void (tasks.value.delete(taskId) && triggerRef(tasks)),
     /** Получить задачу по id */
@@ -116,6 +116,7 @@ const useActiveTasksStore = defineStore('activeTasks', () => {
         task.elapsedMs += delta;
         if (task.elapsedMs >= task.duration) completed.push(task.id);
       });
+      triggerRef(tasks);
       return completed;
     },
   };
@@ -138,10 +139,7 @@ const usePausedTasksStore = defineStore('pausedTasks', () => {
     /** Приостановленные задачи */
     tasks: computed(() => Array.from(tasks.value.values())),
     /** Добавить задачу на паузу */
-    add: (task: TaskSaved) => {
-      tasks.value.set(task.id, task);
-      triggerRef(tasks);
-    },
+    add: (task: TaskSaved) => void (tasks.value.set(task.id, task) && triggerRef(tasks)),
     /** Удалить задачу с паузы (для resume) */
     remove: (taskId: string) => void (tasks.value.delete(taskId) && triggerRef(tasks)),
     /** Получить задачу по id */
@@ -250,13 +248,10 @@ const useTaskManagerStore = defineStore('taskManager', () => {
     clearInterval(tickInterval);
     tickInterval = null;
   };
-  const updateProgressInWorker = throttle(
-    async (updates: Array<{ id: string; elapsedMs: number }>) => {
-      if (!updates.length) return;
-      void getSaveWorker().updateActiveProgress(updates);
-    },
-    1000
-  );
+  const updateProgressInWorker = throttle(async (updates: Array<{ id: string; elapsedMs: number }>) => {
+    if (!updates.length) return;
+    void getSaveWorker().updateActiveProgress(updates);
+  }, 1000);
 
   const startTicking = () => {
     if (tickInterval) return;
@@ -268,17 +263,13 @@ const useTaskManagerStore = defineStore('taskManager', () => {
 
       const activeStore = useActiveTasksStore();
       const completed = activeStore.tick(delta);
-
-      // Обновить прогресс в воркере
-      const updates = activeStore.tasks.map(task => ({
-        id: task.id,
-        elapsedMs: task.elapsedMs,
-      }));
-      updateProgressInWorker(updates);
-
-      if (!completed.length) return;
-
       completed.forEach(completeTask);
+      updateProgressInWorker(
+        activeStore.tasks.map(task => ({
+          id: task.id,
+          elapsedMs: task.elapsedMs,
+        }))
+      );
     }, 1000);
   };
 
@@ -289,28 +280,28 @@ const useTaskManagerStore = defineStore('taskManager', () => {
       const { canFit } = useAttentionStore();
       if (!canFit({ cost: MINIMAL_COST })) return;
 
-    const activeStore = useActiveTasksStore();
-    const activate = (task: TaskSaved, from: 'resumed' | 'pending') => {
-      const wasEmpty = activeStore.isEmpty;
-      activeStore.add(task);
-      void getSaveWorker().moveTask({ id: task.id, from, to: 'active' });
-      if (wasEmpty) startTicking();
-    };
+      const activeStore = useActiveTasksStore();
+      const activate = (task: TaskSaved, from: 'resumed' | 'pending') => {
+        const wasEmpty = activeStore.isEmpty;
+        activeStore.add(task);
+        void getSaveWorker().moveTask({ id: task.id, from, to: 'active' });
+        if (wasEmpty) startTicking();
+      };
 
-    const resumedStore = useResumedTasksStore();
-    for (const task of resumedStore.tasks) {
-      if (!canFit(task)) continue;
-      resumedStore.remove(task.id);
-      activate(task, 'resumed');
-    }
-    if (!canFit({ cost: MINIMAL_COST })) return;
+      const resumedStore = useResumedTasksStore();
+      for (const task of resumedStore.tasks) {
+        if (!canFit(task)) continue;
+        resumedStore.remove(task.id);
+        activate(task, 'resumed');
+      }
+      if (!canFit({ cost: MINIMAL_COST })) return;
 
-    const pendingStore = usePendingTasksStore();
-    for (const task of pendingStore.tasks) {
-      if (!canFit(task)) continue;
-      pendingStore.remove(task.id);
-      activate(task, 'pending');
-    }
+      const pendingStore = usePendingTasksStore();
+      for (const task of pendingStore.tasks) {
+        if (!canFit(task)) continue;
+        pendingStore.remove(task.id);
+        activate(task, 'pending');
+      }
 
       greedyPassScheduled.value = false;
     }, 30000);
@@ -370,19 +361,20 @@ const useTaskManagerStore = defineStore('taskManager', () => {
      */
     addTask: async ({ type, cost, duration, payload }: TaskInput) => {
       console.log('addTask', { type, cost, duration, payload });
-      const task: TaskSaved = {
+      const task = {
         id: nanoid(),
         type,
         cost,
         elapsedMs: 0,
         duration,
         payload,
-      };
+      } satisfies TaskSaved;
       usePendingTasksStore().push(task);
       void getSaveWorker().pushTasks({ tasks: [task] });
       console.log('addTask pushed');
       tryFillPool();
       console.log('addTask tryFillPool runned');
+      return task;
     },
     /**
      * Приостановить активную задачу.
