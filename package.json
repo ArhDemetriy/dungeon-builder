@@ -25,6 +25,7 @@
     "lucide-vue-next": "^0.555.0",
     "nanoid": "^5.1.6",
     "neverthrow": "^8.2.0",
+    "open-simplex-noise": "^2.5.0",
     "phaser": "^3.90.0",
     "pinia": "^3.0.4",
     "pinia-plugin-persistedstate": "^4.7.1",
